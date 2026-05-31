@@ -1,0 +1,82 @@
+# dz-shaders
+
+A collection of ReShade shaders I've put together over time. Some are general-purpose tools, some started as a specific question I had about how an effect actually works at the implementation level. The shaders live in the `dz-shaders/Shaders/` directory and depend only on `ReShade.fxh` unless noted otherwise.
+
+All shaders require ReShade 6.x unless stated otherwise.
+
+## Shaders
+
+### MipScope
+
+**File:** `Shaders/MipScope.fx`
+
+A debug and visualization shader for inspecting mipmapped luminance textures.
+
+Many eye adaptation and auto-exposure shaders estimate scene brightness by sampling high mip levels of a luminance texture. The selected mip level has a significant impact on the result, but it can be difficult to visualize what each mip actually contains or how much image detail remains at a given level.
+
+MipScope maintains five luminance textures at different resolutions (full resolution, 512×512, 256×256, 128×128, and 64×64), each with a complete mip chain. You can switch between textures, inspect individual mip levels, and visualize how sampling behavior changes across the chain.
+
+**Requires:** `ReShade.fxh` only. No additional shader packs needed.
+
+#### Modes
+
+**Mode 0: Fullscreen Mip View**
+
+Stretches the selected mip level to fill the screen. Useful for determining how much detail remains at a given mip level and whether features such as letterbox bars, a dark sidebar, or a bright corner are still affecting the sampled result.
+
+**Mode 1: Mip Chain Grid**
+
+Shows all mip levels at once in a 4-column grid, starting from mip 0. The selected mip level gets a blue tint so you can see exactly which cell you're looking at. If you set a mip level that's beyond what the texture actually has, the last valid cell gets highlighted instead because that's what the GPU is actually reading when you ask for something that doesn't exist.
+
+**Mode 2: Sample Region Overlay**
+
+Shows the scene in grayscale with a yellow rectangle marking the approximate screen region that the sampled texel covers. The box size is `(2^mipLevel / textureSize)` per axis, centered on your Sample UV setting.
+
+The last valid mip level of any texture is always 1 pixel by 1 pixel, so that single sample represents your entire image. If you ask for a mip beyond that, the GPU clamps it there anyway, so the region stays at 100%. This is the correct behavior, it's exactly what happens in a real adaptation shader that over-requests mip levels. (The calculation here is an approximation based on standard box filtering, so driver behavior might differ slightly with non-power-of-two textures, but it's close.)
+
+**Mode 3: Luminance Heatmap**
+
+Maps luminance values to a false-color gradient. Rainbow goes from blue (dark) through green to red (bright). Grayscale is a plain black-to-white ramp, which can be easier to read when you're comparing mip levels side by side.
+
+#### Settings
+
+These control what you see and how you navigate the visualization:
+
+| Setting | What it does |
+|---|---|
+| Debug Mode | Which visualization to display (0-3) |
+| Texture Size | Full resolution, 512×512, 256×256, 128×128, or 64×64 |
+| Mip Level | The mip level to display. Values beyond the valid chain get clamped by the GPU to the last real level |
+| Sample UV | The UV coordinate to mark and use for region coverage calculation (0.5, 0.5 is center) |
+| Show Sample Point | Draw a green crosshair at the sample UV |
+| Show Region Overlay | Display the yellow box showing texel coverage at the selected mip (Mode 2 only) |
+| Heatmap Color Ramp | Grayscale (black to white) or Rainbow (blue to red) for Mode 3 |
+| Grid: Highlight Selected Mip | In Mode 1, tint the current mip cell blue. If out of range, the last valid cell gets highlighted |
+| Grid Cell Border | Border thickness between grid cells in Mode 1 |
+
+#### Understanding the mip chain
+
+When you declare `MipLevels = N` in a ReShade texture, you get N levels, indexed 0 through N-1. The last one is always 1 pixel by 1 pixel, a single value that represents your entire image. That's where most adaptation shaders read from when they want a global average.
+
+If you ask the GPU to sample a mip index that doesn't exist, it just clamps to the last valid level. So a shader that declares `MipLevels = 8` and samples mip 8 is actually reading mip 7, the same 1 pixel by 1 pixel value it would get at index 7. The mip slider intentionally allows values beyond the valid chain so clamping behavior can be observed directly.
+
+For reference, here's how many mip levels each preset naturally has:
+
+| Texture Size | Mip Count | Valid Indices | Last Mip (1×1) at |
+|---|---|---|---|
+| Full res 1080p | 11 | 0-10 | mip 10 |
+| Full res 1440p | 12 | 0-11 | mip 11 |
+| 512 × 512 | 10 | 0-9 | mip 9 |
+| 256 × 256 | 9 | 0-8 | mip 8 |
+| 128 × 128 | 8 | 0-7 | mip 7 |
+| 64 × 64 | 7 | 0-6 | mip 6 |
+
+---
+
+## Installation
+
+Grab the contents of `Shaders/` and drop them in your ReShade `Shaders` folder. Fire it up from the ReShade overlay. Since it replaces the whole frame with debug visuals, just toggle it on when you need it and off when you're done.
+
+## License
+
+MIT. Use, modify, and redistribute freely. Credit is appreciated but not required.
