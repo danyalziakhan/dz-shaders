@@ -90,11 +90,12 @@ Designed and tuned for Mortal Kombat 1. Should work for any game that uses reali
 | Setting | Default | What it does |
 |---|---|---|
 | Blood Tone | 0.5 | Shifts the hue target across the blood spectrum. Left (0.0) = dark crimson/pooled blood. Center (0.5) = pure red/typical bright blood. Right (1.0) = orange-red/dried or coagulated blood. Most games work fine at the default. |
+| Detection Range | 0.08 | Width of the hue window around the target. Small values are tight and precise; large values catch a broader band of reds and orange-reds. Raise if neighboring blood pixels are not being picked up. Lower if non-blood reds (rust, armor) are triggering. |
 | Blood Saturation Threshold | 0.55 | Minimum color saturation a pixel must have to qualify as blood. Raise to exclude dull or faded reds (rust, worn cloth, dark brick). Lower if blood looks muted and is not being fully highlighted. |
 | Shadow Cutoff | 0.01 | Pixels darker than this brightness are excluded. Keeps very dark shadows and near-black surfaces from being tagged as blood. The default is very permissive — only raise it if dark areas are incorrectly picking up. |
 | Highlight Cutoff | 0.40 | Pixels brighter than this brightness are excluded. Prevents fire, glowing UI elements, and bright red surfaces from triggering. Lower if non-blood reds are slipping through. Raise if blood on bright surfaces is getting cut out. |
 | Background Color Strength | 0.9 | How much color is retained in non-blood areas. 1.0 = fully original colors, 0.0 = completely grayscale. The default applies subtle desaturation so blood stands out without making the scene look stylized. |
-| Blood Color Intensity | 1.1 | Output strength of isolated blood pixels. 1.0 = full natural saturation. Above 1.0 boosts saturation beyond the original (up to 1.5). Lower values blend blood partway toward the desaturated background. |
+| Blood Color Intensity | 1.2 | Multiplies the saturation of isolated blood pixels. 1.0 = natural saturation. Above 1.0 makes blood more vivid than the original image (up to 2.0 = double saturation). Below 1.0 pulls blood toward gray. Fully independent of Background Color Strength. |
 
 #### Tuning for a specific game
 
@@ -102,6 +103,7 @@ The defaults are calibrated for Mortal Kombat 1. For other games:
 
 1. Find a scene with blood clearly visible on a neutral surface — floor, concrete, or bare skin work well.
 2. **Blood Tone** — if blood looks distinctly orange-red (dried, older games) nudge right. If it looks dark crimson or pooled, nudge left. Leave at center for standard bright red.
+3. **Detection Range** — this is the most important slider for coverage. If only a thin slice of blood is lighting up and neighboring pixels are not catching, raise it. If non-blood reds start triggering, lower it slightly. The default (0.08, ~29 degrees) covers most realistic blood palettes.
 3. **Shadow Cutoff** — lower slightly if blood pooling in dark shadows is not being picked up. The default (0.01) is already very permissive.
 4. **Highlight Cutoff** — lower if fire, UI elements, or environmental reds are bleeding into the effect. Raise if blood on bright surfaces (white fabric, lit floors) is getting cut out.
 5. **Blood Saturation Threshold** — raise if non-blood reds like rust, worn cloth, or red armor are being highlighted. Lower if blood looks faded or is only partially colored.

@@ -16,12 +16,6 @@ namespace dz_BloodHighlight
     // is most sensitive to it; blue the least.
     static const float3 LUMINANCE_WEIGHTS = float3(0.212656, 0.715158, 0.072186);
 
-    // Width of the hue window around the target that qualifies as blood.
-    // 0.04 ~ 14 degrees on the hue wheel. Narrow enough to reject orange
-    // surfaces and rust, wide enough to catch blood across exposure levels.
-    static const float HUE_BAND_HALF_WIDTH = 0.04;
-
-
     uniform float bloodTone <
         ui_label    = "Blood Tone";
         ui_tooltip  = "Shifts the target hue across the blood color spectrum.\n"
@@ -34,6 +28,19 @@ namespace dz_BloodHighlight
         ui_min      = 0.0;
         ui_max      = 1.0;
     > = 0.5;
+
+    uniform float bloodHueRange <
+        ui_label    = "Detection Range";
+        ui_tooltip  = "How wide a slice of the hue wheel is treated as blood.\n"
+                      "Small values catch only pixels very close to the target hue (tight, precise).\n"
+                      "Large values catch a broader band of reds and orange-reds (wider, more forgiving).\n\n"
+                      "If neighboring blood pixels are not being caught, raise this.\n"
+                      "If non-blood reds like rust or red armor are triggering, lower it.";
+        ui_category = "Blood Targeting";
+        ui_type     = "slider";
+        ui_min      = 0.01;
+        ui_max      = 0.20;
+    > = 0.08;
 
     uniform float bloodSatThreshold <
         ui_label    = "Blood Saturation Threshold";
@@ -83,15 +90,15 @@ namespace dz_BloodHighlight
 
     uniform float bloodColorIntensity <
         ui_label    = "Blood Color Intensity";
-        ui_tooltip  = "Output strength of isolated blood pixels.\n"
-                      "1.0 = blood renders at its full natural saturation.\n"
-                      "Above 1.0 boosts saturation beyond the original.\n"
-                      "Lower values blend blood partway toward the desaturated background.";
+        ui_tooltip  = "Multiplies the saturation of isolated blood pixels.\n"
+                      "1.0 = blood at its natural saturation.\n"
+                      "Above 1.0 makes blood more vivid than the original image.\n"
+                      "Below 1.0 pulls blood toward gray.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.0;
-        ui_max      = 1.5;
-    > = 1.1;
+        ui_max      = 2.0;
+    > = 1.2;
 
 
     // RGB to HSV conversion.
@@ -121,6 +128,15 @@ namespace dz_BloodHighlight
             d / (q.x + e),                            // saturation
             q.x                                       // value
         );
+    }
+
+    // Inverse of rgbToHsv. Reconstructs an RGB color from HSV components.
+    // Source: http://lolengine.net/blog/2013/07/27/rgb-to-hsv-in-glsl
+    float3 hsvToRgb(float3 hsv)
+    {
+        float4 K = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        float3 p = abs(frac(hsv.xxx + K.xyz) * 6.0 - K.www);
+        return hsv.z * lerp(K.xxx, saturate(p - K.xxx), hsv.y);
     }
 
     // Maps the bloodTone slider [0, 1] to a hue value in [0, 1].
@@ -159,7 +175,7 @@ namespace dz_BloodHighlight
         float brightness = hsv.z;
 
         float targetHue   = bloodToneToTargetHue(bloodTone);
-        float invHueWidth = rcp(HUE_BAND_HALF_WIDTH);
+        float invHueWidth = rcp(bloodHueRange);
 
         // Three-way hue distance check handles the wraparound at red (hue 0 = hue 1).
         // A pixel at 0.99 is only 0.02 away from a target of 0.01, but direct
@@ -181,7 +197,17 @@ namespace dz_BloodHighlight
 
         float3 grayscale  = float3(luma, luma, luma);
         float3 background = lerp(grayscale, original.xyz, backgroundColorStrength);
-        float3 result     = lerp(background, original.xyz, quinticSmooth(isolationWeight) * bloodColorIntensity);
+
+        // Scale the saturation boost by the isolation weight so that pixels at the
+        // edge of the hue band get a proportional nudge rather than a full jump.
+        // Without this, edge pixels lerp between background and a fully-boosted
+        // blood color, which creates visible banding at the boundary.
+        float smoothWeight = quinticSmooth(isolationWeight);
+        float satBoost     = lerp(1.0, bloodColorIntensity, smoothWeight);
+        float3 bloodHsv    = float3(hsv.x, saturate(hsv.y * satBoost), hsv.z);
+        float3 bloodColor  = hsvToRgb(bloodHsv);
+
+        float3 result      = lerp(background, bloodColor, smoothWeight);
 
         return float4(result, 1.0);
     }
