@@ -85,12 +85,13 @@ namespace dz_BloodHighlight
         ui_label    = "Blood Color Intensity";
         ui_tooltip  = "Output strength of isolated blood pixels.\n"
                       "1.0 = blood renders at its full natural saturation.\n"
+                      "Above 1.0 boosts saturation beyond the original.\n"
                       "Lower values blend blood partway toward the desaturated background.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.0;
-        ui_max      = 1.0;
-    > = 1.0;
+        ui_max      = 1.5;
+    > = 1.1;
 
 
     // RGB to HSV conversion.
