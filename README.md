@@ -73,9 +73,46 @@ For reference, here's how many mip levels each preset naturally has:
 
 ---
 
+### BloodHighlight
+
+**File:** `Shaders/BloodHighlight.fx`
+
+Isolates blood-colored pixels and subtly desaturates the rest of the scene to make blood more visually prominent. Blood tones are kept at or near their original saturation while everything else is pushed toward grayscale by an adjustable amount.
+
+The shader applies three stacked filters: a hue gate centered on your selected blood tone, a saturation gate to exclude dull or muted reds, and a brightness gate to exclude very dark shadows and bright highlights. Anything that passes all three is treated as blood; everything else is softly blended toward grayscale.
+
+Designed and tuned for Mortal Kombat 1. Should work for any game that uses realistic blood tones.
+
+**Requires:** `ReShade.fxh` only. No additional shader packs needed — all conversion code is self-contained.
+
+#### Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| Blood Tone | 0.5 | Shifts the hue target across the blood spectrum. Left (0.0) = dark crimson/pooled blood. Center (0.5) = pure red/typical bright blood. Right (1.0) = orange-red/dried or coagulated blood. Most games work fine at the default. |
+| Blood Saturation Threshold | 0.55 | Minimum color saturation a pixel must have to qualify as blood. Raise to exclude dull or faded reds (rust, worn cloth, dark brick). Lower if blood looks muted and is not being fully highlighted. |
+| Shadow Cutoff | 0.01 | Pixels darker than this brightness are excluded. Keeps very dark shadows and near-black surfaces from being tagged as blood. The default is very permissive — only raise it if dark areas are incorrectly picking up. |
+| Highlight Cutoff | 0.40 | Pixels brighter than this brightness are excluded. Prevents fire, glowing UI elements, and bright red surfaces from triggering. Lower if non-blood reds are slipping through. Raise if blood on bright surfaces is getting cut out. |
+| Background Color Strength | 0.9 | How much color is retained in non-blood areas. 1.0 = fully original colors, 0.0 = completely grayscale. The default applies subtle desaturation so blood stands out without making the scene look stylized. |
+| Blood Color Intensity | 1.0 | Output strength of isolated blood pixels. 1.0 = full natural saturation. Lower values blend blood partway toward the desaturated background. |
+
+#### Tuning for a specific game
+
+The defaults are calibrated for Mortal Kombat 1. For other games:
+
+1. Find a scene with blood clearly visible on a neutral surface — floor, concrete, or bare skin work well.
+2. **Blood Tone** — if blood looks distinctly orange-red (dried, older games) nudge right. If it looks dark crimson or pooled, nudge left. Leave at center for standard bright red.
+3. **Shadow Cutoff** — lower slightly if blood pooling in dark shadows is not being picked up. The default (0.01) is already very permissive.
+4. **Highlight Cutoff** — lower if fire, UI elements, or environmental reds are bleeding into the effect. Raise if blood on bright surfaces (white fabric, lit floors) is getting cut out.
+5. **Blood Saturation Threshold** — raise if non-blood reds like rust, worn cloth, or red armor are being highlighted. Lower if blood looks faded or is only partially colored.
+6. **Background Color Strength** — adjust to taste. Lower values increase the contrast between blood and everything else at the cost of a more stylized look.
+7. **Blood Color Intensity** — leave at 1.0 unless you want to soften the effect and blend blood partway back toward the desaturated background.
+
+---
+
 ## Installation
 
-Grab the contents of `Shaders/` and drop them in your ReShade `Shaders` folder. Fire it up from the ReShade overlay. Since it replaces the whole frame with debug visuals, just toggle it on when you need it and off when you're done.
+Copy the contents of `Shaders/` into your ReShade `Shaders` folder. Enable shaders from the ReShade overlay. MipScope replaces the whole frame with debug visuals, so toggle it on only when inspecting and off when playing. BloodHighlight is designed to run during normal gameplay.
 
 ## License
 
