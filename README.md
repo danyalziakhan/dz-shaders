@@ -112,6 +112,61 @@ The defaults are calibrated for Mortal Kombat 1. For other games:
 
 ---
 
+### PHDR2
+
+**File:** `Shaders/PHDR2.fx`
+
+A perceptual HDR shader that attempts to restore depth and dynamic range on standard LDR monitors. It's not true HDR - it works by analyzing per-pixel luminance, computing a scene average through eye adaptation, and applying a multi-exposure tone fusion across virtual illumination samples to lift shadow detail and recover highlight structure simultaneously.
+
+The core technique comes from BarbatosBachiko's PHDR shader, which combines Weighted Least Squares smoothing for base layer extraction, Selective Reflectance Scaling to selectively amplify the log-luminance ratio for pixels above the scene mean, Virtual Illumination Generation across five virtual exposure points, and a weighted fusion of those samples back into a single output. The result is a frame that reads as having more perceived depth than the input without obvious tone mapping artifacts.
+
+PHDR2 adds three things on top of that foundation.
+
+The first is per-zone tonal adaptation. The original PHDR applies no per-pixel brightening or darkening beyond the base fusion - the eye adaptation only feeds the scene mean into the tone mapping calculation. PHDR2 exposes six Lift and Pull sliders that let you independently control how aggressively the shader brightens highlights, midtones, and shadows in dark scenes, and suppresses them in bright scenes. All six sliders default to 1.0, which is neutral and identical to the original PHDR output. Push above 1.0 to amplify the response in that zone, or pull below 1.0 to suppress it. The formula uses the standard 4.0 midtone coefficient so all three zones respond proportionally to the same slider travel.
+
+The second is adaptive split toning. Pixels that are measurably brighter than the scene average receive a warm tint (yellow through orange to amber, adjustable). Pixels that fall below a shadow threshold receive a cool tint (cyan through blue to indigo). Both tints are masked by the local contrast ratio against the scene mean rather than absolute brightness, so the effect tracks the environment instead of clipping at fixed luma values. Tint strength can optionally scale with the main INTENSITY slider so it disappears completely when the shader is dialed back.
+
+The third is configurable luma texture resolution and adaptation trigger radius. The internal luminance texture used for eye adaptation can be run at full resolution or downscaled to 512×512, 256×256, 128×128, or 64×64. Smaller textures collapse their mip chains sooner and are cheaper. The Trigger Radius slider selects which mip level is sampled for scene average computation. Lower values weight toward a central screen region, while higher values approach a full-frame average.
+
+The shader is self-contained and has no dependency on external header files.
+
+**Requires:** `ReShade.fxh` only. No additional shader packs needed.
+
+#### Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| INTENSITY | 0.3 | Overall blend strength between the original frame and the tone-mapped result. 0.0 = no effect. |
+| Smoothing Radius | 12.5 | Controls the window size for the Weighted Least Squares base layer smoothing. Larger values separate coarser structure from detail. |
+| Edge Sensitivity | 0.001 | Epsilon in the guided filter variance calculation. Lower values preserve more edges in the base layer; higher values smooth across them. |
+| Enable Eye Adaptation | on | When enabled, scene brightness is measured each frame and used to drive the tone mapping. When disabled, Manual Exposure is used as a fixed scene mean. |
+| Eye Adaptation Speed | 1.0 | Smoothing time in seconds for the moving average. Higher = slower, more cinematic transitions. |
+| Manual Exposure | 0.1 | Fixed scene mean when eye adaptation is off. Lower values keep dark scenes from washing out. |
+| Eye Adaptation Strength | 1.0 | Scales the full adaptation correction. 0.0 = adaptation is computed but ignored. 1.0 = full correction. |
+| Luma Texture Size | Full Res | Resolution of the internal luminance texture. Smaller presets are cheaper and their mip chains collapse to a 1×1 average sooner. |
+| Adaptation Trigger Radius | 8.0 | Mip level sampled from the luma texture to compute scene average. Higher = wider screen coverage. See MipScope for a visualization of each level. |
+| Highlight Lift | 1.0 | Highlight recovery strength in dark scene conditions. 1.0 = neutral. Above 1.0 amplifies; below 1.0 suppresses. |
+| Midtone Lift | 1.0 | Midtone recovery strength in dark scene conditions. Same scale as Highlight Lift. |
+| Shadow Lift | 1.0 | Shadow recovery strength in dark scene conditions. Pull below 1.0 to preserve deep blacks. |
+| Highlight Pull | 1.0 | Highlight suppression strength in bright scene conditions. Above 1.0 darkens more aggressively. |
+| Midtone Pull | 1.0 | Midtone suppression strength in bright scene conditions. |
+| Shadow Pull | 1.0 | Shadow suppression strength in bright scene conditions. |
+| Enable Split Toning | on | Toggles the adaptive warm/cool tinting. |
+| Scale Tints with INTENSITY | on | When on, tint strength fades proportionally as INTENSITY is reduced. |
+| Highlight Tint Tone | 0.5 | Hue of the warm highlight tint. 0.0 = golden yellow, 0.5 = warm orange, 1.0 = deep amber. |
+| Shadow Tint Tone | 0.5 | Hue of the cool shadow tint. 0.0 = cyan/teal, 0.5 = cool blue, 1.0 = deep indigo. |
+| Highlight Tint Base Intensity | 0.15 | Maximum opacity of the warm tint at the strongest contrast ratio. |
+| Shadow Tint Base Intensity | 0.08 | Maximum opacity of the cool tint at the strongest contrast ratio. |
+| Highlight Contrast Threshold | 1.25 | How much brighter than the scene average a pixel must be to receive the warm tint. 1.25 = 25% above average. |
+| Shadow Contrast Threshold | 0.75 | How much darker than the scene average a pixel must be to receive the cool tint. 0.75 = 25% below average. |
+| Input Format | Auto | Color space of the game. Auto detects from the ReShade buffer color space. |
+
+#### Notes on the Lift and Pull sliders
+
+All six sliders are intentionally neutral at their default values. Loading the shader with no adjustments gives output identical to the original PHDR. The sliders are designed for deliberate tuning rather than preset-style defaults. Push Highlight Lift and Shadow Lift together above 1.0 in games with consistently dark imagery to increase perceived depth in the shadowed regions. In bright outdoor scenes, Highlight Pull above 1.0 helps recover the sensation of blown highlights without introducing haze. Shadow Pull below 1.0 resists darkening of shadow areas in those same bright scenes if you want to preserve the shadow detail the fusion already recovered.
+
+---
+
 ## Installation
 
 Copy the contents of `Shaders/` into your ReShade `Shaders` folder. Enable shaders from the ReShade overlay. MipScope replaces the whole frame with debug visuals, so toggle it on only when inspecting and off when playing. BloodHighlight is designed to run during normal gameplay.
