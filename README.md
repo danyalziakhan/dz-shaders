@@ -96,6 +96,7 @@ Designed and tuned for Mortal Kombat 1. Should work for any game that uses reali
 | Highlight Cutoff | 0.40 | Pixels brighter than this brightness are excluded. Prevents fire, glowing UI elements, and bright red surfaces from triggering. Lower if non-blood reds are slipping through. Raise if blood on bright surfaces is getting cut out. |
 | Background Color Strength | 0.9 | How much color is retained in non-blood areas. 1.0 = fully original colors, 0.0 = completely grayscale. The default applies subtle desaturation so blood stands out without making the scene look stylized. |
 | Blood Color Intensity | 1.2 | Multiplies the saturation of isolated blood pixels. 1.0 = natural saturation. Above 1.0 makes blood more vivid than the original image (up to 2.0 = double saturation). Below 1.0 pulls blood toward gray. Fully independent of Background Color Strength. |
+| Show Debug Mask | off | Displays the isolation mask as white pixels against a black background. Useful for visualizing which pixels are being detected as blood and adjusting the three gates (hue, saturation, brightness) to dial in coverage. |
 
 #### Tuning for a specific game
 

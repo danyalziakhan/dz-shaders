@@ -100,6 +100,12 @@ namespace dz_BloodHighlight
         ui_max      = 2.0;
     > = 1.2;
 
+    uniform bool showDebugMask <
+        ui_label    = "Show Debug Mask";
+        ui_tooltip  = "Displays the isolated blood areas as white pixels against a black background.";
+        ui_category = "Debug";
+    > = false;
+
 
     // RGB to HSV conversion.
     //
@@ -190,10 +196,16 @@ namespace dz_BloodHighlight
         float satWeight = smoothstep(bloodSatThreshold - 0.1, bloodSatThreshold, saturation);
 
         // Brightness gate: fade in above the shadow floor, fade out above the highlight ceiling.
-        float valWeight = smoothstep(bloodShadowCutoff - 0.05, bloodShadowCutoff, brightness)
-                        * (1.0 - smoothstep(bloodHighlightCutoff, bloodHighlightCutoff + 0.1, brightness));
+        float valWeight = smoothstep(0.0, bloodShadowCutoff + 0.001, brightness)
+                * (1.0 - smoothstep(bloodHighlightCutoff, bloodHighlightCutoff + 0.1, brightness));
 
         float isolationWeight = hueWeight * satWeight * valWeight;
+        float smoothWeight = quinticSmooth(isolationWeight);
+
+        if (showDebugMask)
+        {
+            return float4(smoothWeight, smoothWeight, smoothWeight, 1.0);
+        }
 
         float3 grayscale  = float3(luma, luma, luma);
         float3 background = lerp(grayscale, original.xyz, backgroundColorStrength);
@@ -202,7 +214,6 @@ namespace dz_BloodHighlight
         // edge of the hue band get a proportional nudge rather than a full jump.
         // Without this, edge pixels lerp between background and a fully-boosted
         // blood color, which creates visible banding at the boundary.
-        float smoothWeight = quinticSmooth(isolationWeight);
         float satBoost     = lerp(1.0, bloodColorIntensity, smoothWeight);
         float3 bloodHsv    = float3(hsv.x, saturate(hsv.y * satBoost), hsv.z);
         float3 bloodColor  = hsvToRgb(bloodHsv);
