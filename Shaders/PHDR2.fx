@@ -690,7 +690,8 @@ void PS_CalcAdapt(VS_OUTPUT input, out float adapt : SV_Target)
     }
     else
     {
-        float smoothFactor = saturate((FrameTime * 0.001) / AdaptationTime);
+        // Replaced linear step with continuous exponential decay to ensure frame rate independence
+        float smoothFactor = 1.0 - exp(-(FrameTime * 0.001) / max(AdaptationTime, 0.001));
         adapt = lerp(last, current, smoothFactor);
     }
     adapt = max(adapt, 1e-5);

@@ -120,13 +120,15 @@ A perceptual HDR shader that attempts to restore depth and dynamic range on stan
 
 The core technique comes from BarbatosBachiko's PHDR shader, which combines Weighted Least Squares smoothing for base layer extraction, Selective Reflectance Scaling to selectively amplify the log-luminance ratio for pixels above the scene mean, Virtual Illumination Generation across five virtual exposure points, and a weighted fusion of those samples back into a single output. The result is a frame that reads as having more perceived depth than the input without obvious tone mapping artifacts.
 
-PHDR2 adds three things on top of that foundation.
+PHDR2 adds four things on top of that foundation.
 
 The first is per-zone tonal adaptation. The original PHDR applies no per-pixel brightening or darkening beyond the base fusion - the eye adaptation only feeds the scene mean into the tone mapping calculation. PHDR2 exposes six Lift and Pull sliders that let you independently control how aggressively the shader brightens highlights, midtones, and shadows in dark scenes, and suppresses them in bright scenes. All six sliders default to 1.0, which is neutral and identical to the original PHDR output. Push above 1.0 to amplify the response in that zone, or pull below 1.0 to suppress it. The formula uses the standard 4.0 midtone coefficient so all three zones respond proportionally to the same slider travel.
 
 The second is adaptive split toning. Pixels that are measurably brighter than the scene average receive a warm tint (yellow through orange to amber, adjustable). Pixels that fall below a shadow threshold receive a cool tint (cyan through blue to indigo). Both tints are masked by the local contrast ratio against the scene mean rather than absolute brightness, so the effect tracks the environment instead of clipping at fixed luma values. Tint strength can optionally scale with the main INTENSITY slider so it disappears completely when the shader is dialed back.
 
 The third is configurable luma texture resolution and adaptation trigger radius. The internal luminance texture used for eye adaptation can be run at full resolution or downscaled to 512×512, 256×256, 128×128, or 64×64. Smaller textures collapse their mip chains sooner and are cheaper. The Trigger Radius slider selects which mip level is sampled for scene average computation. Lower values weight toward a central screen region, while higher values approach a full-frame average.
+
+The fourth is mathematically true frame rate independent eye adaptation. It replaces standard linear interpolation with a continuous exponential decay formula, which ensures that eye adaptation speed remains perfectly identical whether the game runs at low or high frame rates.
 
 The shader is self-contained and has no dependency on external header files.
 
