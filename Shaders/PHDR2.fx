@@ -232,6 +232,13 @@ uniform float Epsilon <
     ui_label = "Edge Sensitivity";
 > = 0.001;
 
+uniform float Contrast_Shadow_Strength <
+    ui_label = "Contrast Shadow Strength";
+    ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright highlights. Higher values increase edge contrast.";
+    ui_type = "drag";
+    ui_min = 0.0; ui_max = 0.5; ui_step = 0.001;
+> = 0.15;
+
 uniform bool EnableAdaptation <
     ui_label = "Enable Eye Adaptation";
     ui_tooltip = "Enables dynamic brightness adaptation. Disable to use a fixed exposure value (prevents washing out dark scenes).";
@@ -460,6 +467,12 @@ uniform float TintThresholdS <
                  "1.0 = Triggers instantly on any value below average.\n"
                  "0.75 = Requires a pixel to drop at least 25% below the environment baseline.";
 > = 0.75;
+
+uniform bool Debug_Mask <
+    ui_label = "Debug: Visualize Contrast Mask";
+    ui_category = "Debug";
+    ui_type = "radio";
+> = false;
 
 uniform float FrameTime < source = "frametime"; >;
 
@@ -716,6 +729,8 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     L    = max(L,    1e-5);
     Base = max(Base, 1e-5);
     float R_val = log(L) - log(Base);
+    // High-frequency reflectance detail used later for contrast masking
+    float hf_detail  = L - Base;
 
     float sm_manual  = clamp(ManualExposure, 0.01, 0.99);
     float sm_adapt   = EnableAdaptation ? clamp(tex2Dfetch(sTexAdapt, 0).r, 0.01, 0.99) : sm_manual;
@@ -810,6 +825,20 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
             blended = lerp(blended, blended * GetShadowTintColor(), final_opacity_S);
         }
     }
+
+    // Simultaneous Contrast Masking: create a microscopic dark halo around bright
+    // objects by slightly deepening pixels that sit on the shadow side of an edge.
+    // hf_detail < 0 identifies pixels darker than their local base (shadow boundaries).
+    float contrast_shadow = saturate(-hf_detail) * Contrast_Shadow_Strength;
+
+    // Visualization block
+    if (Debug_Mask)
+    {
+        // The default mask strength is 0.15, so we multiply by 10 to make 
+        // the subtle dark halo clearly visible as bright pixels.
+        return contrast_shadow * 10.0;
+    }
+    blended = saturate(blended * (1.0 - contrast_shadow));
 
     return blended;
 }
