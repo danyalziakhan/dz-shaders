@@ -468,6 +468,18 @@ uniform float TintThresholdS <
                  "0.75 = Requires a pixel to drop at least 25% below the environment baseline.";
 > = 0.75;
 
+uniform bool EnableHK <
+    ui_label = "Enable Helmholtz-Kohlrausch Effect";
+    ui_category = "Adaptive Color Volume";
+    ui_tooltip = "Simulates perceived brightness boost in high-chroma colors.";
+> = false;
+
+uniform bool EnablePurkinje <
+    ui_label = "Enable Purkinje Effect";
+    ui_category = "Adaptive Color Volume";
+    ui_tooltip = "Simulates scotopic vision shift in dark scenes.";
+> = false;
+
 uniform bool Debug_Mask <
     ui_label = "Debug: Visualize Contrast Mask";
     ui_category = "Debug";
@@ -801,8 +813,46 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         blended  = saturate(adp_luma + adp_chroma);
     }
 
+    // [HK Effect] Trick the brain into perceiving blinding highlights 
+    // by boosting chroma as luminance approaches 1.0.
     [branch]
-    if (EnableSplitToning && (!ScaleTintsWithIntensity || Strength > 0.0))
+    if (EnableHK)
+    {
+        float Y_hk  =  0.25 * blended.r + 0.5 * blended.g + 0.25 * blended.b;
+        float Co_hk =  0.5  * blended.r                   - 0.5  * blended.b;
+        float Cg_hk = -0.25 * blended.r + 0.5 * blended.g - 0.25 * blended.b;
+
+        // Apply up to a 30% chroma boost for pixels above 0.8 luma
+        float hk_boost = smoothstep(0.8, 1.0, Y_hk) * 0.3;
+        Co_hk *= (1.0 + hk_boost);
+        Cg_hk *= (1.0 + hk_boost);
+
+        float t_hk = Y_hk - Cg_hk;
+        blended = saturate(float3(t_hk + Co_hk, Y_hk + Cg_hk, t_hk - Co_hk));
+    }
+
+    // [Purkinje] In dark scenes, simulate scotopic vision by suppressing red 
+    // and shifting shadow floors toward cyan (blue-green) to maximize contrast.
+    [branch]
+    if (EnableAdaptation && EnablePurkinje && scene_mean < 0.30)
+    {
+        float purkinje_strength = smoothstep(0.30, 0.15, scene_mean);
+        float pixel_luma        = GetLuminance(blended);
+        
+        // Isolate the effect to the darker halves of the image
+        float shadow_mask       = 1.0 - smoothstep(0.0, 0.5, pixel_luma);
+        float apply_strength    = purkinje_strength * shadow_mask;
+
+        // Subtler desaturation and boost
+        blended.r = lerp(blended.r, pixel_luma, apply_strength * 0.2);
+
+        // Additively lift green and blue to simulate the 507nm peak sensitivity.
+        blended.g = saturate(blended.g + apply_strength * 0.02 * (1.0 - blended.g));
+        blended.b = saturate(blended.b + apply_strength * 0.025 * (1.0 - blended.b));
+    }
+
+    [branch]
+    if (EnableAdaptation && EnableSplitToning && (!ScaleTintsWithIntensity || Strength > 0.0))
     {
         float local_luma     = GetLuminance(blended);
         float contrast_ratio = local_luma / (scene_mean + 0.0001);
