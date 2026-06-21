@@ -828,31 +828,45 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         Cg_hk *= (1.0 + hk_boost);
 
         float t_hk = Y_hk - Cg_hk;
-        blended = saturate(float3(t_hk + Co_hk, Y_hk + Cg_hk, t_hk - Co_hk));
+        float3 res = float3(t_hk + Co_hk, Y_hk + Cg_hk, t_hk - Co_hk);
+
+        // Soft-knee gamut recovery to prevent color crushing
+        float max_comp = max(res.r, max(res.g, res.b));
+        if (max_comp > 1.0)
+        {
+            res /= max_comp;
+        }
+        
+        blended = res;
     }
+
+    float purkinje_mask = 0.0;
 
     // [Purkinje] In dark scenes, simulate scotopic vision by suppressing red 
     // and shifting shadow floors toward cyan (blue-green) to maximize contrast.
     [branch]
     if (EnableAdaptation && EnablePurkinje && scene_mean < 0.30)
     {
-        float purkinje_strength = smoothstep(0.30, 0.15, scene_mean);
         float pixel_luma        = GetLuminance(blended);
         
         // Isolate the effect to the darker halves of the image
         float shadow_mask       = 1.0 - smoothstep(0.0, 0.5, pixel_luma);
-        float apply_strength    = purkinje_strength * shadow_mask;
+        
+        // This gives you 1.0 (max intensity) when scene_mean is at 0.30, 
+        // and smoothly scales down to 0.0 (fully off) when the screen hits 0.05.
+        float purkinje_strength = smoothstep(0.05, 0.30, scene_mean);
+        purkinje_mask           = purkinje_strength * shadow_mask;
 
-        // Subtler desaturation and boost
-        blended.r = lerp(blended.r, pixel_luma, apply_strength * 0.2);
+        // Slightly toned down desaturation and boost
+        blended.r = lerp(blended.r, pixel_luma, purkinje_mask * 0.15);
 
         // Additively lift green and blue to simulate the 507nm peak sensitivity.
-        blended.g = saturate(blended.g + apply_strength * 0.02 * (1.0 - blended.g));
-        blended.b = saturate(blended.b + apply_strength * 0.025 * (1.0 - blended.b));
+        blended.g = saturate(blended.g + purkinje_mask * 0.015 * (1.0 - blended.g));
+        blended.b = saturate(blended.b + purkinje_mask * 0.018 * (1.0 - blended.b));
     }
 
     [branch]
-    if (EnableAdaptation && EnableSplitToning && (!ScaleTintsWithIntensity || Strength > 0.0))
+    if (EnableSplitToning && (!ScaleTintsWithIntensity || Strength > 0.0))
     {
         float local_luma     = GetLuminance(blended);
         float contrast_ratio = local_luma / (scene_mean + 0.0001);
@@ -872,6 +886,10 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         {
             float shadow_factor   = saturate((TintThresholdS - contrast_ratio) * 2.0);
             float final_opacity_S = TintOpacityS * shadow_factor * strength_weight * scene_shadow_weight;
+            
+            // Inverse scaling prevents split toning from overlapping with the active Purkinje mask
+            final_opacity_S *= (1.0 - purkinje_mask);
+            
             blended = lerp(blended, blended * GetShadowTintColor(), final_opacity_S);
         }
     }

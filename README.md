@@ -133,9 +133,9 @@ The fourth is mathematically true frame rate independent eye adaptation. It repl
 
 The fifth is simultaneous contrast masking. This adds a microscopic dark halo around bright highlights by slightly deepening pixels on the shadow side of an edge. By selectively darkening the shadow boundary, it exploits the human eye’s natural contrast enhancement (the Chevreul illusion), making bright areas appear more luminous without increasing their actual brightness. Unlike standard clarity filters, it uses the smoothed `Base` layer for the mask, ensuring it is spatially aware and ignores high frequency noise.
 
-The sixth is the Helmholtz-Kohlrausch (HK) effect. This tricks the brain into perceiving blinding highlights by boosting chroma as luminance approaches 1.0.
+The sixth is the Helmholtz Kohlrausch (HK) effect. This tricks the brain into perceiving blinding highlights by boosting chroma as luminance approaches 1.0. It uses soft knee gamut recovery to prevent color crushing and clipping in extreme highlights.
 
-The seventh is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan (blue-green) to maximize contrast.
+The seventh is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan to maximize contrast. It smoothly fades out as the scene reaches pitch black to prevent unnatural color shifts on blank screens.
 
 The shader is self-contained and has no dependency on external header files.
 
@@ -169,8 +169,8 @@ The shader is self-contained and has no dependency on external header files.
 | Shadow Tint Base Intensity | 0.08 | Maximum opacity of the cool tint at the strongest contrast ratio. |
 | Highlight Contrast Threshold | 1.25 | How much brighter than the scene average a pixel must be to receive the warm tint. |
 | Shadow Contrast Threshold | 0.75 | How much darker than the scene average a pixel must be to receive the cool tint. |
-| EnableHK | off | Simulates perceived brightness boost in high-chroma colors. |
-| EnablePurkinje | off | Simulates scotopic vision shift in dark scenes. |
+| Enable Helmholtz-Kohlrausch Effect | off | Simulates perceived brightness boost in high-chroma colors. |
+| Enable Purkinje Effect | off | Simulates scotopic vision shift in dark scenes. |
 | Debug: Visualize Contrast Mask | off | Displays the contrast mask as a white overlay. Useful for verifying the shadow side edge detection. |
 | Input Format | Auto | Color space of the game. Auto detects from the ReShade buffer color space. |
 
@@ -179,6 +179,8 @@ The shader is self-contained and has no dependency on external header files.
 All six sliders are intentionally neutral at their default values. Loading the shader with no adjustments gives output identical to the original PHDR. The sliders are designed for deliberate tuning rather than preset-style defaults. Push Highlight Lift and Shadow Lift together above 1.0 in games with consistently dark imagery to increase perceived depth in the shadowed regions. In bright outdoor scenes, Highlight Pull above 1.0 helps recover the sensation of blown highlights without introducing haze. Shadow Pull below 1.0 resists darkening of shadow areas in those same bright scenes if you want to preserve the shadow detail the fusion already recovered.
 
 The **Contrast Shadow Strength** slider is best used in small increments. Because it acts on the local base layer, it is extremely stable, but higher values can eventually cause a visible darkening around edges if pushed beyond 0.5.
+
+The shader includes internal logic to prevent the Purkinje effect and Split Toning from stacking in deep shadows. This ensures that shadow color shifts remain natural, preventing muddy color profiles in dark scenes.
 
 ---
 
