@@ -123,7 +123,7 @@ The core technique comes from BarbatosBachiko's PHDR shader, which combines Weig
 
 PHDR2 adds seven things on top of that foundation.
 
-The first is per-zone tonal adaptation. The original PHDR applies no per-pixel brightening or darkening beyond the base fusion - the eye adaptation only feeds the scene mean into the tone mapping calculation. PHDR2 exposes six Lift and Pull sliders that let you independently control how aggressively the shader brightens highlights, midtones, and shadows in dark scenes, and suppresses them in bright scenes. All six sliders default to 1.0, which is neutral and identical to the original PHDR output. Push above 1.0 to amplify the response in that zone, or pull below 1.0 to suppress it. The formula uses the standard 4.0 midtone coefficient so all three zones respond proportionally to the same slider travel.
+The first is per-zone tonal adaptation. The original PHDR applies no per-pixel brightening or darkening beyond the base fusion - the exposure logic only feeds the brightness level into the tone mapping calculation. PHDR2 exposes six Lift and Pull sliders that let you independently control how aggressively the shader brightens highlights, midtones, and shadows in dark scenes, and suppresses them in bright scenes. These controls function seamlessly whether dynamic eye adaptation is enabled or manual exposure is used. All six sliders default to 1.0, which is neutral and identical to the original PHDR output. Push above 1.0 to amplify the response in that zone, or pull below 1.0 to suppress it. The formula uses the standard 4.0 midtone coefficient so all three zones respond proportionally to the same slider travel.
 
 The second is adaptive split toning. Pixels that are measurably brighter than the scene average receive a warm tint (yellow through orange to amber, adjustable). Pixels that fall below a shadow threshold receive a cool tint (cyan through blue to indigo). Both tints are masked by the local contrast ratio against the scene mean rather than absolute brightness, so the effect tracks the environment instead of clipping at fixed luma values. Tint strength can optionally scale with the main INTENSITY slider so it disappears completely when the shader is dialed back.
 
@@ -146,11 +146,11 @@ The shader is self-contained and has no dependency on external header files.
 | Setting | Default | What it does |
 |---|---|---|
 | INTENSITY | 0.3 | Overall blend strength between the original frame and the tone-mapped result. 0.0 = no effect. |
-| Smoothing Radius | 12.5 | Controls the window size for the Weighted Least Squares base layer smoothing. Larger values separate coarser structure from detail. |
+| Smoothing Radius | 15.0 | Controls the window size for the Weighted Least Squares base layer smoothing. Larger values separate coarser structure from detail. |
 | Edge Sensitivity | 0.001 | Epsilon in the guided filter variance calculation. Lower values preserve more edges in the base layer; higher values smooth across them. |
-| Contrast Shadow Strength | 0.15 | Intensity of the microscopic dark halo around bright highlights. Higher values increase perceived edge contrast without sharpening artifacts. |
+| Contrast Shadow Strength | 0.25 | Intensity of the microscopic dark halo around bright highlights. Higher values increase perceived edge contrast without sharpening artifacts. |
 | Enable Eye Adaptation | on | When enabled, scene brightness is measured each frame and used to drive the tone mapping. When disabled, Manual Exposure is used as a fixed scene mean. |
-| Eye Adaptation Speed | 1.0 | Smoothing time in seconds for the moving average. Higher = slower, more cinematic transitions. |
+| Eye Adaptation Speed | 0.5 | Smoothing time in seconds for the moving average. Higher = slower, more cinematic transitions. |
 | Manual Exposure | 0.1 | Fixed scene mean when eye adaptation is off. Lower values keep dark scenes from washing out. |
 | Eye Adaptation Strength | 1.0 | Scales the full adaptation correction. 0.0 = adaptation is computed but ignored. 1.0 = full correction. |
 | Luma Texture Size | Full Res | Resolution of the internal luminance texture. Smaller presets are cheaper and their mip chains collapse to a 1×1 average sooner. |
@@ -169,8 +169,8 @@ The shader is self-contained and has no dependency on external header files.
 | Shadow Tint Base Intensity | 0.08 | Maximum opacity of the cool tint at the strongest contrast ratio. |
 | Highlight Contrast Threshold | 1.25 | How much brighter than the scene average a pixel must be to receive the warm tint. |
 | Shadow Contrast Threshold | 0.75 | How much darker than the scene average a pixel must be to receive the cool tint. |
-| Enable Helmholtz-Kohlrausch Effect | off | Simulates perceived brightness boost in high-chroma colors. |
-| Enable Purkinje Effect | off | Simulates scotopic vision shift in dark scenes. |
+| Enable Helmholtz-Kohlrausch Effect | on | Simulates perceived brightness boost in high-chroma colors. |
+| Enable Purkinje Effect | on | Simulates scotopic vision shift in dark scenes. |
 | Debug: Visualize Contrast Mask | off | Displays the contrast mask as a white overlay. Useful for verifying the shadow side edge detection. |
 | Input Format | Auto | Color space of the game. Auto detects from the ReShade buffer color space. |
 
@@ -178,7 +178,7 @@ The shader is self-contained and has no dependency on external header files.
 
 All six sliders are intentionally neutral at their default values. Loading the shader with no adjustments gives output identical to the original PHDR. The sliders are designed for deliberate tuning rather than preset-style defaults. Push Highlight Lift and Shadow Lift together above 1.0 in games with consistently dark imagery to increase perceived depth in the shadowed regions. In bright outdoor scenes, Highlight Pull above 1.0 helps recover the sensation of blown highlights without introducing haze. Shadow Pull below 1.0 resists darkening of shadow areas in those same bright scenes if you want to preserve the shadow detail the fusion already recovered.
 
-The **Contrast Shadow Strength** slider is best used in small increments. Because it acts on the local base layer, it is extremely stable, but higher values can eventually cause a visible darkening around edges if pushed beyond 0.5.
+The **Contrast Shadow Strength** slider is best used in small increments. Because it acts on the local base layer, it is extremely stable, but higher values can eventually cause a visible darkening around edges if pushed beyond 1.0.
 
 The shader includes internal logic to prevent the Purkinje effect and Split Toning from stacking in deep shadows. This ensures that shadow color shifts remain natural, preventing muddy color profiles in dark scenes.
 

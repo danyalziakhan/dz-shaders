@@ -224,7 +224,7 @@ uniform float Radius <
     ui_min = 1.0; ui_max = 30.0;
     ui_label = "Smoothing Radius";
     ui_tooltip = "Simulates the Lambda/Alpha of WLS.";
-> = 12.5;
+> = 15.0;
 
 uniform float Epsilon <
     ui_type = "slider";
@@ -236,8 +236,8 @@ uniform float Contrast_Shadow_Strength <
     ui_label = "Contrast Shadow Strength";
     ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright highlights. Higher values increase edge contrast.";
     ui_type = "drag";
-    ui_min = 0.0; ui_max = 0.5; ui_step = 0.001;
-> = 0.15;
+    ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+> = 0.25;
 
 uniform bool EnableAdaptation <
     ui_label = "Enable Eye Adaptation";
@@ -246,10 +246,10 @@ uniform bool EnableAdaptation <
 
 uniform float AdaptationTime <
     ui_type = "slider";
-    ui_min = 0.0; ui_max = 2.0;
+    ui_min = 0.0; ui_max = 1.0;
     ui_label = "Eye Adaptation Speed";
     ui_tooltip = "Time in seconds for the eye to adjust to brightness changes. Higher = Smoother/Slower.";
-> = 1.0;
+> = 0.5;
 
 uniform float ManualExposure <
     ui_type = "slider";
@@ -472,13 +472,13 @@ uniform bool EnableHK <
     ui_label = "Enable Helmholtz-Kohlrausch Effect";
     ui_category = "Adaptive Color Volume";
     ui_tooltip = "Simulates perceived brightness boost in high-chroma colors.";
-> = false;
+> = true;
 
 uniform bool EnablePurkinje <
     ui_label = "Enable Purkinje Effect";
     ui_category = "Adaptive Color Volume";
     ui_tooltip = "Simulates scotopic vision shift in dark scenes.";
-> = false;
+> = true;
 
 uniform bool Debug_Mask <
     ui_label = "Debug: Visualize Contrast Mask";
@@ -779,39 +779,37 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 
     float3 blended = lerp(original, original * ratio, Strength);
 
-    [branch]
-    if (EnableAdaptation)
+    float adp_luma    = GetLuminance(blended);
+    float3 adp_chroma = blended - adp_luma;
+    float adp_delta;
+
+    // Use 1.0 strength for static manual exposure, otherwise use the slider
+    float current_strength = EnableAdaptation ? AdaptationStrength : 1.0;
+
+    // sm_adapt defaults to ManualExposure when adaptation is disabled
+    if (sm_adapt < 0.5)
     {
-        float adp_luma    = GetLuminance(blended);
-        float3 adp_chroma = blended - adp_luma;
-        float adp_delta;
-
-        // sm_adapt (not scene_mean) is used here to evaluate raw environment brightness
-        // so that AdaptationStrength's lerp does not distort the brightening/darkening threshold.
-        if (sm_adapt < 0.5)
-        {
-            float curve = AdaptationStrength * 10.0 * pow(0.5 - sm_adapt, 4.0);
-            adp_delta = AdaptionDelta(
-                adp_luma,
-                LiftMidtones   - 1.0,
-                LiftShadows    - 1.0,
-                LiftHighlights - 1.0
-            ) * curve;
-        }
-        else
-        {
-            float curve = AdaptationStrength * (sm_adapt - 0.5);
-            adp_delta = -AdaptionDelta(
-                adp_luma,
-                PullMidtones   - 1.0,
-                PullShadows    - 1.0,
-                PullHighlights - 1.0
-            ) * curve;
-        }
-
-        adp_luma = saturate(adp_luma + adp_delta);
-        blended  = saturate(adp_luma + adp_chroma);
+        float curve = current_strength * 10.0 * pow(0.5 - sm_adapt, 4.0);
+        adp_delta = AdaptionDelta(
+            adp_luma,
+            LiftMidtones   - 1.0,
+            LiftShadows    - 1.0,
+            LiftHighlights - 1.0
+        ) * curve;
     }
+    else
+    {
+        float curve = current_strength * (sm_adapt - 0.5);
+        adp_delta = -AdaptionDelta(
+            adp_luma,
+            PullMidtones   - 1.0,
+            PullShadows    - 1.0,
+            PullHighlights - 1.0
+        ) * curve;
+    }
+
+    adp_luma = saturate(adp_luma + adp_delta);
+    blended  = saturate(adp_luma + adp_chroma);
 
     // [HK Effect] Trick the brain into perceiving blinding highlights 
     // by boosting chroma as luminance approaches 1.0.
@@ -857,11 +855,11 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         purkinje_mask           = purkinje_strength * shadow_mask;
 
         // Slightly toned down desaturation and boost
-        blended.r = lerp(blended.r, pixel_luma, purkinje_mask * 0.15);
+        blended.r = lerp(blended.r, pixel_luma, purkinje_mask * 0.12);
 
         // Additively lift green and blue to simulate the 507nm peak sensitivity.
-        blended.g = saturate(blended.g + purkinje_mask * 0.015 * (1.0 - blended.g));
-        blended.b = saturate(blended.b + purkinje_mask * 0.018 * (1.0 - blended.b));
+        blended.g = saturate(blended.g + purkinje_mask * 0.012 * (1.0 - blended.g));
+        blended.b = saturate(blended.b + purkinje_mask * 0.015 * (1.0 - blended.b));
     }
 
     [branch]
