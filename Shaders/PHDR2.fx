@@ -845,16 +845,15 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // [Purkinje] In dark scenes, simulate scotopic vision by suppressing red 
     // and shifting shadow floors toward cyan (blue-green) to maximize contrast.
     [branch]
-    if (EnableAdaptation && EnablePurkinje && scene_mean < 0.30)
+    if (EnablePurkinje && scene_mean < 0.30)
     {
         float pixel_luma        = GetLuminance(blended);
         
         // Isolate the effect to the darker halves of the image
         float shadow_mask       = 1.0 - smoothstep(0.0, 0.5, pixel_luma);
         
-        // This gives you 1.0 (max intensity) when scene_mean is at 0.30, 
-        // and smoothly scales down to 0.0 (fully off) when the screen hits 0.05.
-        float purkinje_strength = smoothstep(0.05, 0.30, scene_mean);
+        // Inverted to smoothly fade out to 0.0 as the scene brightens toward 0.30
+        float purkinje_strength = 1.0 - smoothstep(0.05, 0.30, scene_mean);
         purkinje_mask           = purkinje_strength * shadow_mask;
 
         // Slightly toned down desaturation and boost

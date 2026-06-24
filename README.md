@@ -135,7 +135,7 @@ The fifth is simultaneous contrast masking. This adds a microscopic dark halo ar
 
 The sixth is the Helmholtz Kohlrausch (HK) effect. This tricks the brain into perceiving blinding highlights by boosting chroma as luminance approaches 1.0. It uses soft knee gamut recovery to prevent color crushing and clipping in extreme highlights.
 
-The seventh is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan to maximize contrast. It smoothly fades out as the scene reaches pitch black to prevent unnatural color shifts on blank screens.
+The seventh is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan to maximize contrast. It smoothly fades out as the scene brightens to prevent unnatural color shifts and eliminates transition pops at the 0.30 luminance threshold.  
 
 The shader is self-contained and has no dependency on external header files.
 
