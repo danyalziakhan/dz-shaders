@@ -133,7 +133,7 @@ The fourth is mathematically true frame rate independent eye adaptation. It repl
 
 The fifth is simultaneous contrast masking. This adds a microscopic dark halo around bright highlights by slightly deepening pixels on the shadow side of an edge. By selectively darkening the shadow boundary, it exploits the human eye’s natural contrast enhancement (the Chevreul illusion), making bright areas appear more luminous without increasing their actual brightness. Unlike standard clarity filters, it uses the smoothed `Base` layer for the mask, ensuring it is spatially aware and ignores high frequency noise.
 
-The sixth is the Helmholtz Kohlrausch (HK) effect. This tricks the brain into perceiving blinding highlights by boosting chroma as luminance approaches 1.0. It uses soft knee gamut recovery to prevent color crushing and clipping in extreme highlights.
+The sixth is the Helmholtz Kohlrausch (HK) effect, which tricks the brain into perceiving blinding highlights by boosting chroma as luminance approaches 1.0. This implementation incorporates hue dependency, which applies maximum saturation boosts to blues and reds while leaving yellows virtually unchanged. It also features photopic masking based on scene average luminance, which ensures the effect only activates in well lit environments. To maintain image fidelity, it utilizes luminance preserving gamut recovery that prevents color clipping and crushing in extreme highlights.
 
 The seventh is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan to maximize contrast. It smoothly fades out as the scene brightens to prevent unnatural color shifts and eliminates transition pops at the 0.30 luminance threshold.  
 

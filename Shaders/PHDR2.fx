@@ -820,19 +820,51 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         float Co_hk =  0.5  * blended.r                   - 0.5  * blended.b;
         float Cg_hk = -0.25 * blended.r + 0.5 * blended.g - 0.25 * blended.b;
 
-        // Apply up to a 30% chroma boost for pixels above 0.8 luma
-        float hk_boost = smoothstep(0.8, 1.0, Y_hk) * 0.3;
+        // Normalize the color vector to extract pure hue for weighting
+        float min_c = min(blended.r, min(blended.g, blended.b));
+        float max_c = max(blended.r, max(blended.g, blended.b));
+        float chroma = max_c - min_c;
+        float3 h = (blended - min_c) / (chroma + 1e-5);
+        
+        // Calculate hue tier list: Blues/Reds/Magentas (1.0), Cyans/Greens (0.5), Yellows (0.05)
+        float hue_weight = 0.0;
+        hue_weight += h.b * (1.0 - h.g * 0.5);               // Blue and Cyan handling
+        hue_weight += h.r * (1.0 - h.g);                     // Red handling (Yellow cancels out)
+        hue_weight += h.g * (1.0 - h.r) * (1.0 - h.b) * 0.5; // Green handling
+        
+        // Apply a 5 percent baseline so yellow receives a negligible boost instead of zero
+        hue_weight = clamp(hue_weight, 0.05, 1.0);
+
+        // HK is a photopic phenomenon, restrict it to bright environments
+        float photopic_mask = smoothstep(0.10, 0.40, scene_mean);
+
+        // Apply hue and photopic scaling to the main boost
+        float hk_boost = smoothstep(0.8, 1.0, max_c) * 0.35 * hue_weight * photopic_mask;
+        
         Co_hk *= (1.0 + hk_boost);
         Cg_hk *= (1.0 + hk_boost);
 
         float t_hk = Y_hk - Cg_hk;
         float3 res = float3(t_hk + Co_hk, Y_hk + Cg_hk, t_hk - Co_hk);
 
-        // Soft-knee gamut recovery to prevent color crushing
-        float max_comp = max(res.r, max(res.g, res.b));
-        if (max_comp > 1.0)
+        // Prevent negative values from aggressive chroma expansion
+        res = max(0.0, res);
+
+        // Luminance preserving gamut recovery
+        // Desaturates out of bounds colors toward white instead of crushing them to gray
+        float res_max = max(res.r, max(res.g, res.b));
+        if (res_max > 1.0)
         {
-            res /= max_comp;
+            float res_luma = GetLuminance(res);
+            if (res_luma < 1.0)
+            {
+                float safe_blend = (1.0 - res_luma) / (res_max - res_luma);
+                res = lerp(res_luma, res, safe_blend);
+            }
+            else
+            {
+                res = 1.0;
+            }
         }
         
         blended = res;
