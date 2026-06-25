@@ -855,11 +855,11 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         purkinje_mask           = purkinje_strength * shadow_mask;
 
         // Slightly toned down desaturation and boost
-        blended.r = lerp(blended.r, pixel_luma, purkinje_mask * 0.12);
+        blended.r = lerp(blended.r, pixel_luma, purkinje_mask * 0.10);
 
         // Additively lift green and blue to simulate the 507nm peak sensitivity.
-        blended.g = saturate(blended.g + purkinje_mask * 0.012 * (1.0 - blended.g));
-        blended.b = saturate(blended.b + purkinje_mask * 0.015 * (1.0 - blended.b));
+        blended.g = saturate(blended.g + purkinje_mask * 0.010 * (1.0 - blended.g));
+        blended.b = saturate(blended.b + purkinje_mask * 0.012 * (1.0 - blended.b));
     }
 
     [branch]
