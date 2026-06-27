@@ -479,6 +479,41 @@ uniform bool EnablePurkinje <
     ui_tooltip = "Simulates scotopic vision shift in dark scenes.";
 > = true;
 
+uniform float Purkinje_Red_Reduction <
+    ui_label = "Purkinje Red Reduction";
+    ui_category = "Adaptive Color Volume";
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 0.5; ui_step = 0.001;
+> = 0.10;
+
+uniform float Purkinje_Green_Bias <
+    ui_label = "Purkinje Green Bias";
+    ui_category = "Adaptive Color Volume";
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 0.05; ui_step = 0.001;
+> = 0.010;
+
+uniform float Purkinje_Blue_Bias <
+    ui_label = "Purkinje Blue Bias";
+    ui_category = "Adaptive Color Volume";
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 0.05; ui_step = 0.001;
+> = 0.012;
+
+uniform float Purkinje_Fade_End <
+    ui_label = "Purkinje Fade-Out End";
+    ui_category = "Adaptive Color Volume";
+    ui_type = "slider";
+    ui_min = 0.10; ui_max = 0.50; ui_step = 0.01;
+> = 0.30;
+
+uniform float Purkinje_Fade_Start <
+    ui_label = "Purkinje Fade-Out Start";
+    ui_category = "Adaptive Color Volume";
+    ui_type = "slider";
+    ui_min = 0.00; ui_max = 0.20; ui_step = 0.005;
+> = 0.05;
+
 uniform bool Debug_Mask <
     ui_label = "Debug: Visualize Contrast Mask";
     ui_category = "Debug";
@@ -821,23 +856,23 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // [Purkinje] In dark scenes, simulate scotopic vision by suppressing red 
     // and shifting shadow floors toward cyan (blue-green) to maximize contrast.
     [branch]
-    if (EnablePurkinje && scene_mean < 0.30)
+    if (EnablePurkinje && scene_mean < Purkinje_Fade_End)
     {
-        float pixel_luma        = GetLuminance(blended);
-        
+        float pixel_luma  = GetLuminance(blended);
+
         // Isolate the effect to the darker halves of the image
-        float shadow_mask       = 1.0 - smoothstep(0.0, 0.5, pixel_luma);
-        
-        // Inverted to smoothly fade out to 0.0 as the scene brightens toward 0.30
-        float purkinje_strength = 1.0 - smoothstep(0.05, 0.30, scene_mean);
-        purkinje_mask           = purkinje_strength * shadow_mask;
+        float shadow_mask = 1.0 - smoothstep(0.0, 0.5, pixel_luma);
+
+        float purkinje_strength = 1.0 - smoothstep(Purkinje_Fade_Start, Purkinje_Fade_End, scene_mean);
+
+        purkinje_mask = purkinje_strength * shadow_mask;
 
         // Slightly toned down desaturation and boost
-        blended.r = lerp(blended.r, pixel_luma, purkinje_mask * 0.10);
+        blended.r = lerp(blended.r, pixel_luma, purkinje_mask * Purkinje_Red_Reduction);
 
         // Additively lift green and blue to simulate the 507nm peak sensitivity.
-        blended.g = saturate(blended.g + purkinje_mask * 0.010 * (1.0 - blended.g));
-        blended.b = saturate(blended.b + purkinje_mask * 0.012 * (1.0 - blended.b));
+        blended.g = saturate(blended.g + purkinje_mask * Purkinje_Green_Bias * (1.0 - blended.g));
+        blended.b = saturate(blended.b + purkinje_mask * Purkinje_Blue_Bias * (1.0 - blended.b));
     }
 
     [branch]
