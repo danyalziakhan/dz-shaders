@@ -75,7 +75,6 @@ uniform int HDR_Input_Format <
 > = 0;
 
 uniform float HDR_Peak_Nits <
-    ui_category_closed = true;
     ui_category = "HDR";
     ui_label = "HDR Peak Brightness (Nits)";
     ui_tooltip = "Set this to match your monitor's maximum HDR brightness capabilities (e.g., 400 for DisplayHDR 400, 1000 for high-end HDR). Only affects HDR formats.";
@@ -84,14 +83,12 @@ uniform float HDR_Peak_Nits <
 > = 1000.0;
 
 uniform bool SDR_Enable_ITM <
-    ui_category_closed = true;
     ui_category = "HDR";
     ui_label = "Enable SDR Inverse Tonemapping";
     ui_tooltip = "Expands SDR brightness to HDR range using Inverse Reinhard. Disabled by default as it introduces nonlinear distortion during blending.";
 > = true;
 
 uniform bool SDR_ITM_Hue_Preserving <
-    ui_category_closed = true;
     ui_category = "HDR";
     ui_label = "SDR ITM Hue Preserving";
     ui_tooltip = "Enable to preserve original hues during brightness expansion.\n"
@@ -217,12 +214,14 @@ uniform float Strength <
     ui_min = 0.0;
     ui_max = 1.0;
     ui_label = "INTENSITY";
+    ui_category = "General";
 > = 0.3;
 
 uniform float Radius <
     ui_type = "slider";
     ui_min = 1.0; ui_max = 30.0;
     ui_label = "Smoothing Radius";
+    ui_category = "General";
     ui_tooltip = "Simulates the Lambda/Alpha of WLS.";
 > = 15.0;
 
@@ -230,10 +229,12 @@ uniform float Epsilon <
     ui_type = "slider";
     ui_min = 0.001; ui_max = 0.005;
     ui_label = "Edge Sensitivity";
+    ui_category = "General";
 > = 0.001;
 
 uniform float Contrast_Micro <
     ui_label = "Micro Contrast Boost";
+    ui_category = "General";
     ui_tooltip = "Amplifies or suppresses micro-scale local contrast.";
     ui_type = "slider";
     ui_min = -1.0; ui_max = 1.0; ui_step = 0.01;
@@ -241,6 +242,7 @@ uniform float Contrast_Micro <
 
 uniform float Contrast_Medium <
     ui_label = "Medium Contrast Boost";
+    ui_category = "General";
     ui_tooltip = "Amplifies or suppresses medium-scale local contrast.";
     ui_type = "slider";
     ui_min = -1.0; ui_max = 1.0; ui_step = 0.01;
@@ -248,6 +250,7 @@ uniform float Contrast_Medium <
 
 uniform float Contrast_Macro <
     ui_label = "Macro Contrast Boost";
+    ui_category = "General";
     ui_tooltip = "Amplifies or suppresses large-scale depth contrast.";
     ui_type = "slider";
     ui_min = -1.0; ui_max = 1.0; ui_step = 0.01;
@@ -255,6 +258,7 @@ uniform float Contrast_Macro <
 
 uniform float Contrast_Shadow_Strength <
     ui_label = "Contrast Shadow Strength";
+    ui_category = "General";
     ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright highlights. Higher values increase edge contrast.";
     ui_type = "drag";
     ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
@@ -262,11 +266,14 @@ uniform float Contrast_Shadow_Strength <
 
 uniform bool EnableDithering <
     ui_label = "Enable Dithering";
-    ui_tooltip = "Applies high-frequency analytical blue-noise style dithering at the end of the pipeline to eliminate 8-bit banding artifacts.";
+    ui_category = "General";
+    ui_tooltip = "Reduces visible 8-bit gradient banding by injecting subtle adaptive dithering only where banding is likely to occur.";
 > = true;
 
 uniform bool EnableAdaptation <
     ui_label = "Enable Eye Adaptation";
+    ui_category = "Eye Adaptation";
+    ui_category_closed = true;
     ui_tooltip = "Enables dynamic brightness adaptation. Disable to use a fixed exposure value (prevents washing out dark scenes).";
 > = true;
 
@@ -274,6 +281,7 @@ uniform float AdaptationTime <
     ui_type = "slider";
     ui_min = 0.0; ui_max = 1.0;
     ui_label = "Eye Adaptation Speed";
+    ui_category = "Eye Adaptation";
     ui_tooltip = "Time in seconds for the eye to adjust to brightness changes. Higher = Smoother/Slower.";
 > = 0.5;
 
@@ -281,6 +289,7 @@ uniform float ManualExposure <
     ui_type = "slider";
     ui_min = 0.001; ui_max = 1.0;
     ui_label = "Manual Exposure";
+    ui_category = "Eye Adaptation";
     ui_tooltip = "Fixed exposure value used when Eye Adaptation is disabled. Lower values preserve darkness.";
 > = 0.1;
 
@@ -289,6 +298,7 @@ uniform float AdaptationStrength <
     ui_min = 0.0; ui_max = 2.0;
     ui_step = 0.01;
     ui_label = "Eye Adaptation Strength";
+    ui_category = "Eye Adaptation";
     ui_tooltip = "How strongly eye adaptation shifts the exposure.\n"
                  "Only active when Enable Eye Adaptation is on.\n\n"
                  "1.0 = full adaptation correction (default behavior).\n"
@@ -301,6 +311,7 @@ uniform float AdaptationStrength <
 uniform int LumaTextureSize <
     ui_type = "combo";
     ui_label = "Luma Texture Size";
+    ui_category = "Eye Adaptation";
     ui_tooltip = "Resolution of the internal luminance texture used for eye adaptation.\n\n"
                  "Smaller textures are cheaper and their mip chains collapse to 1x1\n"
                  "sooner, so a given Trigger Radius covers a wider screen area:\n"
@@ -324,6 +335,7 @@ uniform float TriggerRadius <
     ui_min = 1.0; ui_max = 11.0;
     ui_step = 0.1;
     ui_label = "Adaptation Trigger Radius";
+    ui_category = "Eye Adaptation";
     ui_tooltip = "Controls which mip level of the luminance texture is sampled to\n"
                  "compute average scene brightness for eye adaptation.\n\n"
                  "Lower values sample a smaller, more central area of the image.\n"
@@ -362,7 +374,6 @@ uniform float LiftMidtones <
     ui_step = 0.01;
     ui_label = "Midtone Lift";
     ui_category = "Tonal Brightening";
-    ui_category_closed = true;
     ui_tooltip = "Controls midtone recovery strength when the scene is darker than average.\n\n"
                  "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
                  "> 1.0 = amplifies midtone brightening in dark scene conditions.\n"
@@ -375,7 +386,6 @@ uniform float LiftShadows <
     ui_step = 0.01;
     ui_label = "Shadow Lift";
     ui_category = "Tonal Brightening";
-    ui_category_closed = true;
     ui_tooltip = "Controls shadow recovery strength when the scene is darker than average.\n\n"
                  "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
                  "> 1.0 = amplifies shadow brightening in dark scene conditions.\n"
@@ -405,7 +415,6 @@ uniform float PullMidtones <
     ui_step = 0.01;
     ui_label = "Midtone Pull";
     ui_category = "Tonal Darkening";
-    ui_category_closed = true;
     ui_tooltip = "Controls midtone suppression strength when the scene is brighter than average.\n\n"
                  "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
                  "> 1.0 = amplifies midtone darkening in bright scene conditions.\n"
@@ -418,7 +427,6 @@ uniform float PullShadows <
     ui_step = 0.01;
     ui_label = "Shadow Pull";
     ui_category = "Tonal Darkening";
-    ui_category_closed = true;
     ui_tooltip = "Controls shadow suppression strength when the scene is brighter than average.\n\n"
                  "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
                  "> 1.0 = amplifies shadow darkening in bright scene conditions.\n"
@@ -430,6 +438,7 @@ uniform float PullShadows <
 uniform bool EnableSplitToning <
     ui_label = "Enable Split Toning";
     ui_category = "Adaptive Color Volume";
+    ui_category_closed = true;
     ui_tooltip = "Toggles adaptive highlight and shadow tinting.";
 > = true;
 
@@ -538,6 +547,7 @@ uniform float Purkinje_Fade_Start <
 uniform bool Debug_Mask <
     ui_label = "Debug: Visualize Contrast Mask";
     ui_category = "Debug";
+    ui_category_closed = true;
     ui_type = "radio";
 > = false;
 

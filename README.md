@@ -121,7 +121,7 @@ A perceptual HDR shader that attempts to restore depth and dynamic range on stan
 
 The core technique comes from BarbatosBachiko's PHDR shader, which combines Weighted Least Squares smoothing for base layer extraction, Selective Reflectance Scaling to selectively amplify the log-luminance ratio for pixels above the scene mean, Virtual Illumination Generation across five virtual exposure points, and a weighted fusion of those samples back into a single output. The result is a frame that reads as having more perceived depth than the input without obvious tone mapping artifacts.
 
-PHDR2 adds six things on top of that foundation.
+PHDR2 adds eight things on top of that foundation.
 
 The first is per-zone tonal adaptation. The original PHDR applies no per-pixel brightening or darkening beyond the base fusion - the exposure logic only feeds the brightness level into the tone mapping calculation. PHDR2 exposes six Lift and Pull sliders that let you independently control how aggressively the shader brightens highlights, midtones, and shadows in dark scenes, and suppresses them in bright scenes. These controls function seamlessly whether dynamic eye adaptation is enabled or manual exposure is used. All six sliders default to 1.0, which is neutral and identical to the original PHDR output. Push above 1.0 to amplify the response in that zone, or pull below 1.0 to suppress it. The formula uses the standard 4.0 midtone coefficient so all three zones respond proportionally to the same slider travel.
 
@@ -133,7 +133,11 @@ The fourth is mathematically true frame rate independent eye adaptation. It repl
 
 The fifth is simultaneous contrast masking. This adds a microscopic dark halo around bright highlights by slightly deepening pixels on the shadow side of an edge. By selectively darkening the shadow boundary, it exploits the human eye’s natural contrast enhancement (the Chevreul illusion), making bright areas appear more luminous without increasing their actual brightness. Unlike standard clarity filters, it uses the smoothed `Base` layer for the mask, ensuring it is spatially aware and ignores high frequency noise.
 
-The sixth is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan to maximize contrast. It smoothly fades out as the scene brightens to prevent unnatural color shifts and eliminates transition pops at the 0.30 luminance threshold.  
+The sixth is configurable Purkinje adaptation. In dark scenes, it simulates the shift from photopic to scotopic vision by reducing red sensitivity and introducing a subtle blue-green bias in shadow regions. The effect exposes separate controls for red reduction, green bias, blue bias, the scene brightness below which the effect operates at full strength, and the scene brightness above which it becomes fully disabled. This allows the effect to be tuned from a subtle perceptual enhancement to a stronger low-light vision simulation.
+
+The seventh is multi-scale local contrast enhancement. The original guided filter extracts a single base layer, limiting local contrast manipulation to one spatial frequency. PHDR2 extends this into three independently adjustable scales: Micro, Medium, and Macro. Micro Contrast Boost affects fine texture detail and edge definition, Medium Contrast Boost influences object-level structure, and Macro Contrast Boost modifies large-scale depth relationships across the scene. Each scale can be amplified or suppressed independently, providing much finer control over perceived depth and dimensionality.
+
+The eighth is adaptive interleaved gradient noise (IGN) dithering. SDR displays and 8-bit output pipelines can exhibit visible gradient banding when exposure, local contrast, or color volume are aggressively enhanced. PHDR2 can optionally inject a small amount of analytical interleaved gradient noise only into regions identified as being susceptible to banding. This helps preserve smooth gradients while avoiding unnecessary noise in detailed regions. A dedicated debug visualization is also included to display the exact dithering contribution being applied to the final image.
 
 The shader is self-contained and has no dependency on external header files.
 
@@ -141,35 +145,45 @@ The shader is self-contained and has no dependency on external header files.
 
 #### Settings
 
-| Setting | Default | What it does |
-|---|---|---|
-| INTENSITY | 0.3 | Overall blend strength between the original frame and the tone-mapped result. 0.0 = no effect. |
-| Smoothing Radius | 15.0 | Controls the window size for the Weighted Least Squares base layer smoothing. Larger values separate coarser structure from detail. |
-| Edge Sensitivity | 0.001 | Epsilon in the guided filter variance calculation. Lower values preserve more edges in the base layer; higher values smooth across them. |
-| Contrast Shadow Strength | 0.25 | Intensity of the microscopic dark halo around bright highlights. Higher values increase perceived edge contrast without sharpening artifacts. |
-| Enable Eye Adaptation | on | When enabled, scene brightness is measured each frame and used to drive the tone mapping. When disabled, Manual Exposure is used as a fixed scene mean. |
-| Eye Adaptation Speed | 0.5 | Smoothing time in seconds for the moving average. Higher = slower, more cinematic transitions. |
-| Manual Exposure | 0.1 | Fixed scene mean when eye adaptation is off. Lower values keep dark scenes from washing out. |
-| Eye Adaptation Strength | 1.0 | Scales the full adaptation correction. 0.0 = adaptation is computed but ignored. 1.0 = full correction. |
-| Luma Texture Size | Full Res | Resolution of the internal luminance texture. Smaller presets are cheaper and their mip chains collapse to a 1×1 average sooner. |
-| Adaptation Trigger Radius | 8.0 | Mip level sampled from the luma texture to compute scene average. Higher = wider screen coverage. See MipScope for a visualization of each level. |
-| Highlight Lift | 1.0 | Highlight recovery strength in dark scene conditions. 1.0 = neutral. Above 1.0 amplifies; below 1.0 suppresses. |
-| Midtone Lift | 1.0 | Midtone recovery strength in dark scene conditions. Same scale as Highlight Lift. |
-| Shadow Lift | 1.0 | Shadow recovery strength in dark scene conditions. Pull below 1.0 to preserve deep blacks. |
-| Highlight Pull | 1.0 | Highlight suppression strength in bright scene conditions. Above 1.0 darkens more aggressively. |
-| Midtone Pull | 1.0 | Midtone suppression strength in bright scene conditions. |
-| Shadow Pull | 1.0 | Shadow suppression strength in bright scene conditions. |
-| Enable Split Toning | on | Toggles the adaptive warm/cool tinting. |
-| Scale Tints with INTENSITY | on | When on, tint strength fades proportionally as INTENSITY is reduced. |
-| Highlight Tint Tone | 0.5 | Hue of the warm highlight tint. 0.0 = golden yellow, 0.5 = warm orange, 1.0 = deep amber. |
-| Shadow Tint Tone | 0.5 | Hue of the cool shadow tint. 0.0 = cyan/teal, 0.5 = cool blue, 1.0 = deep indigo. |
-| Highlight Tint Base Intensity | 0.15 | Maximum opacity of the warm tint at the strongest contrast ratio. |
-| Shadow Tint Base Intensity | 0.08 | Maximum opacity of the cool tint at the strongest contrast ratio. |
-| Highlight Contrast Threshold | 1.25 | How much brighter than the scene average a pixel must be to receive the warm tint. |
-| Shadow Contrast Threshold | 0.75 | How much darker than the scene average a pixel must be to receive the cool tint. |
-| Enable Purkinje Effect | on | Simulates scotopic vision shift in dark scenes. |
-| Debug: Visualize Contrast Mask | off | Displays the contrast mask as a white overlay. Useful for verifying the shadow side edge detection. |
-| Input Format | Auto | Color space of the game. Auto detects from the ReShade buffer color space. |
+| Setting                        | Default         | What it does                                                                                                                                            |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| INTENSITY                      | 0.3             | Overall blend strength between the original frame and the tone-mapped result. 0.0 = no effect.                                                          |
+| Smoothing Radius               | 15.0            | Controls the window size for the guided filter base layer smoothing. Larger values separate coarser structure from detail.                              |
+| Edge Sensitivity               | 0.001           | Epsilon in the guided filter variance calculation. Lower values preserve more edges in the base layer; higher values smooth across them.                |
+| Micro Contrast Boost           | 0.0             | Amplifies or suppresses fine-scale texture detail and high-frequency local contrast.                                                                    |
+| Medium Contrast Boost          | 0.0             | Amplifies or suppresses medium-scale object contrast and structural detail.                                                                             |
+| Macro Contrast Boost           | 0.0             | Amplifies or suppresses large-scale depth contrast and scene separation.                                                                                |
+| Contrast Shadow Strength       | 0.25            | Intensity of the microscopic dark halo around bright highlights. Higher values increase perceived edge contrast without sharpening artifacts.           |
+| Enable Dithering               | on              | Enables adaptive interleaved gradient noise dithering to reduce visible SDR gradient banding.                                                           |
+| Enable Eye Adaptation          | on              | When enabled, scene brightness is measured each frame and used to drive the tone mapping. When disabled, Manual Exposure is used as a fixed scene mean. |
+| Eye Adaptation Speed           | 0.5             | Smoothing time in seconds for the moving average. Higher values produce slower and more cinematic adaptation transitions.                               |
+| Manual Exposure                | 0.1             | Fixed scene mean when eye adaptation is disabled. Lower values preserve darker scenes.                                                                  |
+| Eye Adaptation Strength        | 1.0             | Scales the adaptation correction. 0.0 = adaptation is measured but ignored, 1.0 = full correction.                                                      |
+| Luma Texture Size              | Full Resolution | Resolution of the internal luminance texture used for eye adaptation. Lower resolutions are cheaper and collapse to a whole-image average sooner.       |
+| Adaptation Trigger Radius      | 8.0             | Mip level sampled from the luminance texture to estimate average scene brightness. Higher values cover more of the screen.                              |
+| Highlight Lift                 | 1.0             | Highlight recovery strength when the scene is darker than average. 1.0 = neutral. Values above 1.0 amplify brightening; values below 1.0 suppress it.   |
+| Midtone Lift                   | 1.0             | Midtone recovery strength when the scene is darker than average. Uses the same scale as Highlight Lift.                                                 |
+| Shadow Lift                    | 1.0             | Shadow recovery strength when the scene is darker than average. Lower values preserve deeper blacks.                                                    |
+| Highlight Pull                 | 1.0             | Highlight suppression strength when the scene is brighter than average. Values above 1.0 darken highlights more aggressively.                           |
+| Midtone Pull                   | 1.0             | Midtone suppression strength when the scene is brighter than average.                                                                                   |
+| Shadow Pull                    | 1.0             | Shadow suppression strength when the scene is brighter than average.                                                                                    |
+| Enable Split Toning            | on              | Toggles adaptive warm highlight tinting and cool shadow tinting.                                                                                        |
+| Scale Tints with INTENSITY     | on              | When enabled, tint strength scales proportionally with the INTENSITY slider.                                                                            |
+| Highlight Tint Tone            | 0.5             | Hue of the warm highlight tint. 0.0 = golden yellow, 0.5 = warm orange, 1.0 = deep amber.                                                               |
+| Shadow Tint Tone               | 0.5             | Hue of the cool shadow tint. 0.0 = cyan/teal, 0.5 = cool blue, 1.0 = deep indigo.                                                                       |
+| Highlight Tint Base Intensity  | 0.15            | Maximum opacity of the warm tint at the strongest contrast ratio.                                                                                       |
+| Shadow Tint Base Intensity     | 0.08            | Maximum opacity of the cool tint at the strongest contrast ratio.                                                                                       |
+| Highlight Contrast Threshold   | 1.25            | How much brighter than the scene average a pixel must be before the warm tint is applied.                                                               |
+| Shadow Contrast Threshold      | 0.75            | How much darker than the scene average a pixel must be before the cool tint is applied.                                                                 |
+| Enable Purkinje Effect         | on              | Simulates the Purkinje shift by reducing red sensitivity and introducing a subtle blue-green bias in dark scenes.                                       |
+| Purkinje Red Reduction         | 0.10            | Controls the strength of red sensitivity reduction in dark scenes.                                                                                      |
+| Purkinje Green Bias            | 0.010           | Controls the strength of the green bias introduced by the Purkinje effect.                                                                              |
+| Purkinje Blue Bias             | 0.012           | Controls the strength of the blue bias introduced by the Purkinje effect.                                                                               |
+| Purkinje Fade-Out End          | 0.30            | Scene brightness above which the Purkinje effect is completely disabled.                                                                                |
+| Purkinje Fade-Out Start        | 0.05            | Scene brightness below which the Purkinje effect operates at full strength.                                                                             |
+| Debug: Visualize Contrast Mask | off             | Displays the simultaneous contrast mask used to generate the microscopic dark halo around highlights.                                                   |
+| Debug: Visualize Dithering     | off             | Displays the actual adaptive dithering contribution being injected into the final image.                                                                |
+
 
 #### Notes on the Lift and Pull sliders
 
