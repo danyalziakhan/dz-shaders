@@ -232,6 +232,27 @@ uniform float Epsilon <
     ui_label = "Edge Sensitivity";
 > = 0.001;
 
+uniform float Contrast_Micro <
+    ui_label = "Micro Contrast Boost";
+    ui_tooltip = "Amplifies or suppresses micro-scale local contrast.";
+    ui_type = "slider";
+    ui_min = -1.0; ui_max = 1.0; ui_step = 0.01;
+> = 0.0;
+
+uniform float Contrast_Medium <
+    ui_label = "Medium Contrast Boost";
+    ui_tooltip = "Amplifies or suppresses medium-scale local contrast.";
+    ui_type = "slider";
+    ui_min = -1.0; ui_max = 1.0; ui_step = 0.01;
+> = 0.0;
+
+uniform float Contrast_Macro <
+    ui_label = "Macro Contrast Boost";
+    ui_tooltip = "Amplifies or suppresses large-scale depth contrast.";
+    ui_type = "slider";
+    ui_min = -1.0; ui_max = 1.0; ui_step = 0.01;
+> = 0.0;
+
 uniform float Contrast_Shadow_Strength <
     ui_label = "Contrast Shadow Strength";
     ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright highlights. Higher values increase edge contrast.";
@@ -538,54 +559,215 @@ uniform float FrameTime < source = "frametime"; >;
 
 namespace DZPHDR
 {
+    texture TexColor : COLOR;
+    sampler sTexColor
+    {
+        Texture = TexColor;
+    };
 
-texture TexColor : COLOR;
-sampler sTexColor { Texture = TexColor; };
+    texture TexLuma
+    {
+        Width     = BUFFER_WIDTH;
+        Height    = BUFFER_HEIGHT;
+        Format    = R16F;
+        MipLevels = 12;
+    };
 
-texture TexLuma
-{
-    Width = BUFFER_WIDTH;
-    Height = BUFFER_HEIGHT;
-    Format = R16F;
-    MipLevels = 12;
-};
-sampler sTexLuma { Texture = TexLuma; };
+    sampler sTexLuma
+    {
+        Texture = TexLuma;
+    };
 
-texture TexLuma512  { Width = 512; Height = 512; Format = R16F; MipLevels = 10; };
-sampler sTexLuma512 { Texture = TexLuma512; };
+    texture TexLuma512
+    {
+        Width     = 512;
+        Height    = 512;
+        Format    = R16F;
+        MipLevels = 10;
+    };
 
-texture TexLuma256  { Width = 256; Height = 256; Format = R16F; MipLevels = 9; };
-sampler sTexLuma256 { Texture = TexLuma256; };
+    sampler sTexLuma512
+    {
+        Texture = TexLuma512;
+    };
 
-texture TexLuma128  { Width = 128; Height = 128; Format = R16F; MipLevels = 8; };
-sampler sTexLuma128 { Texture = TexLuma128; };
+    texture TexLuma256
+    {
+        Width     = 256;
+        Height    = 256;
+        Format    = R16F;
+        MipLevels = 9;
+    };
 
-texture TexLuma64   { Width = 64;  Height = 64;  Format = R16F; MipLevels = 7; };
-sampler sTexLuma64  { Texture = TexLuma64; };
+    sampler sTexLuma256
+    {
+        Texture = TexLuma256;
+    };
 
-texture TexTempMeans { Width = GW; Height = GH; Format = RG16F; };
-sampler sTexTempMeans { Texture = TexTempMeans; };
+    texture TexLuma128
+    {
+        Width     = 128;
+        Height    = 128;
+        Format    = R16F;
+        MipLevels = 8;
+    };
 
-texture TexStats { Width = GW; Height = GH; Format = RG16F; };
-sampler sTexStats { Texture = TexStats; };
+    sampler sTexLuma128
+    {
+        Texture = TexLuma128;
+    };
 
-texture TexVarI { Width = BUFFER_WIDTH; Height = BUFFER_HEIGHT; Format = R16F; };
-sampler sTexVarI { Texture = TexVarI; };
+    texture TexLuma64
+    {
+        Width     = 64;
+        Height    = 64;
+        Format    = R16F;
+        MipLevels = 7;
+    };
 
-texture TexAdapt { Format = R32F; Width = 1; Height = 1; };
-sampler sTexAdapt { Texture = TexAdapt; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+    sampler sTexLuma64
+    {
+        Texture = TexLuma64;
+    };
 
-texture TexLastAdapt { Format = R32F; Width = 1; Height = 1; };
-sampler sTexLastAdapt { Texture = TexLastAdapt; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+    // Medium scale (Base) filter maps
+    texture TexTempMeansMedium
+    {
+        Width  = GW;
+        Height = GH;
+        Format = RG16F;
+    };
 
-texture TexLastParams { Format = RGBA32F; Width = 1; Height = 1; };
-sampler sTexLastParams { Texture = TexLastParams; MinFilter = POINT; MagFilter = POINT; MipFilter = POINT; };
+    sampler sTexTempMeansMedium
+    {
+        Texture = TexTempMeansMedium;
+    };
 
-struct VS_OUTPUT
-{
-    float4 pos : SV_POSITION;
-    float2 uv  : TEXCOORD0;
-};
+    texture TexStatsMedium
+    {
+        Width  = GW;
+        Height = GH;
+        Format = RG16F;
+    };
+
+    sampler sTexStatsMedium
+    {
+        Texture = TexStatsMedium;
+    };
+
+    // Micro scale filter maps
+    texture TexTempMeansMicro
+    {
+        Width  = GW;
+        Height = GH;
+        Format = RG16F;
+    };
+
+    sampler sTexTempMeansMicro
+    {
+        Texture = TexTempMeansMicro;
+    };
+
+    texture TexStatsMicro
+    {
+        Width  = GW;
+        Height = GH;
+        Format = RG16F;
+    };
+
+    sampler sTexStatsMicro
+    {
+        Texture = TexStatsMicro;
+    };
+
+    // Macro scale filter maps
+    texture TexTempMeansMacro
+    {
+        Width  = GW;
+        Height = GH;
+        Format = RG16F;
+    };
+
+    sampler sTexTempMeansMacro
+    {
+        Texture = TexTempMeansMacro;
+    };
+
+    texture TexStatsMacro
+    {
+        Width  = GW;
+        Height = GH;
+        Format = RG16F;
+    };
+
+    sampler sTexStatsMacro
+    {
+        Texture = TexStatsMacro;
+    };
+
+    // Expanded to RGB16F to store all three scale bases (R=Micro, G=Medium, B=Macro)
+    texture TexVarI
+    {
+        Width  = BUFFER_WIDTH;
+        Height = BUFFER_HEIGHT;
+        Format = RGBA16F;
+    };
+
+    sampler sTexVarI
+    {
+        Texture = TexVarI;
+    };
+
+    texture TexAdapt
+    {
+        Format = R32F;
+        Width  = 1;
+        Height = 1;
+    };
+
+    sampler sTexAdapt
+    {
+        Texture   = TexAdapt;
+        MinFilter = POINT;
+        MagFilter = POINT;
+        MipFilter = POINT;
+    };
+
+    texture TexLastAdapt
+    {
+        Format = R32F;
+        Width  = 1;
+        Height = 1;
+    };
+
+    sampler sTexLastAdapt
+    {
+        Texture   = TexLastAdapt;
+        MinFilter = POINT;
+        MagFilter = POINT;
+        MipFilter = POINT;
+    };
+
+    texture TexLastParams
+    {
+        Format = RGBA32F;
+        Width  = 1;
+        Height = 1;
+    };
+
+    sampler sTexLastParams
+    {
+        Texture   = TexLastParams;
+        MinFilter = POINT;
+        MagFilter = POINT;
+        MipFilter = POINT;
+    };
+
+    struct VS_OUTPUT
+    {
+        float4 pos : SV_POSITION;
+        float2 uv  : TEXCOORD0;
+    };
 
 //-----------------|
 // :: Functions :: |
@@ -695,7 +877,8 @@ float SampleAvgLuma()
     return tex2Dlod(sTexLuma, uvMip).r;
 }
 
-void PS_CalcMeansH(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
+// ---- Standard (Medium) Guided Scale Filters ----
+void PS_CalcMeansH_Medium(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float step = max(1.0, Radius / 3.0);
@@ -711,7 +894,7 @@ void PS_CalcMeansH(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
     mean_horiz = sum / count;
 }
 
-void PS_CalcMeansV(VS_OUTPUT input, out float2 mean_corr : SV_Target)
+void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 mean_corr : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float step = max(1.0, Radius / 3.0);
@@ -720,24 +903,106 @@ void PS_CalcMeansV(VS_OUTPUT input, out float2 mean_corr : SV_Target)
 
     for (float y = -Radius; y <= Radius; y += step)
     {
-        float2 val = tex2Dlod(sTexTempMeans, float4(input.uv + float2(0, y * ps.y), 0, 0)).rg;
+        float2 val = tex2Dlod(sTexTempMeansMedium, float4(input.uv + float2(0, y * ps.y), 0, 0)).rg;
         sum += val;
         count += 1.0;
     }
     mean_corr = sum / count;
 }
 
-void PS_GuidedFilterResult(VS_OUTPUT input, out float base_layer : SV_Target)
+// ---- Micro Guided Scale Filters ----
+void PS_CalcMeansH_Micro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
-    float2 stats = tex2D(sTexStats, input.uv).rg;
-    float mean_I = stats.r;
-    float corr_I = stats.g;
+    float2 ps = bb::PixelSize;
+    float r = max(1.0, Radius / 3.0);
+    float step = max(1.0, r / 3.0);
+    float2 sum = 0.0;
+    float count = 0.0;
 
-    float var_I = corr_I - mean_I * mean_I;
-    float a = var_I / (var_I + Epsilon);
+    for (float x = -r; x <= r; x += step)
+    {
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(x * ps.x, 0), 0, 0)).r;
+        sum += float2(val, val * val);
+        count += 1.0;
+    }
+    mean_horiz = sum / count;
+}
 
+void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
+{
+    float2 ps = bb::PixelSize;
+    float r = max(1.0, Radius / 3.0);
+    float step = max(1.0, r / 3.0);
+    float2 sum = 0.0;
+    float count = 0.0;
+
+    for (float y = -r; y <= r; y += step)
+    {
+        float2 val = tex2Dlod(sTexTempMeansMicro, float4(input.uv + float2(0, y * ps.y), 0, 0)).rg;
+        sum += val;
+        count += 1.0;
+    }
+    mean_corr = sum / count;
+}
+
+// ---- Macro Guided Scale Filters ----
+void PS_CalcMeansH_Macro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
+{
+    float2 ps = bb::PixelSize;
+    float r = min(90.0, Radius * 3.0);
+    float step = max(1.0, r / 3.0);
+    float2 sum = 0.0;
+    float count = 0.0;
+
+    for (float x = -r; x <= r; x += step)
+    {
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(x * ps.x, 0), 0, 0)).r;
+        sum += float2(val, val * val);
+        count += 1.0;
+    }
+    mean_horiz = sum / count;
+}
+
+void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
+{
+    float2 ps = bb::PixelSize;
+    float r = min(90.0, Radius * 3.0);
+    float step = max(1.0, r / 3.0);
+    float2 sum = 0.0;
+    float count = 0.0;
+
+    for (float y = -r; y <= r; y += step)
+    {
+        float2 val = tex2Dlod(sTexTempMeansMacro, float4(input.uv + float2(0, y * ps.y), 0, 0)).rg;
+        sum += val;
+        count += 1.0;
+    }
+    mean_corr = sum / count;
+}
+
+void PS_GuidedFilterResult(VS_OUTPUT input, out float3 base_layers : SV_Target)
+{
     float I = tex2D(sTexLuma, input.uv).r;
-    base_layer = lerp(mean_I, I, a);
+
+    // Medium scale (Original Base)
+    float2 stats = tex2D(sTexStatsMedium, input.uv).rg;
+    float var_I = stats.g - stats.r * stats.r;
+    float a = var_I / (var_I + Epsilon);
+    float base_medium = lerp(stats.r, I, a);
+
+    // Micro scale base
+    float2 stats_micro = tex2D(sTexStatsMicro, input.uv).rg;
+    float var_micro = stats_micro.g - stats_micro.r * stats_micro.r;
+    float a_micro = var_micro / (var_micro + Epsilon);
+    float base_micro = lerp(stats_micro.r, I, a_micro);
+
+    // Macro scale base
+    float2 stats_macro = tex2D(sTexStatsMacro, input.uv).rg;
+    float var_macro = stats_macro.g - stats_macro.r * stats_macro.r;
+    float a_macro = var_macro / (var_macro + Epsilon);
+    float base_macro = lerp(stats_macro.r, I, a_macro);
+
+    base_layers = float3(base_micro, base_medium, base_macro);
 }
 
 void PS_CalcAdapt(VS_OUTPUT input, out float adapt : SV_Target)
@@ -776,14 +1041,23 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 {
     float3 original = tex2D(sTexColor, input.uv).rgb;
     float L    = tex2D(sTexLuma, input.uv).r;
-    float Base = tex2D(sTexVarI, input.uv).r;
+    float3 Bases = tex2D(sTexVarI, input.uv).rgb;
 
     L    = max(L,    1e-5);
-    Base = max(Base, 1e-5);
-    float R_val = log(L) - log(Base);
+    Bases = max(Bases, 1e-5);
+
+    float Base = Bases.y; // Medium base is default
+
+    float diff_medium = log(L) - log(Bases.y);
+    float R_val = diff_medium * (1.0 + Contrast_Medium);
+
+    float diff_micro = log(L) - log(Bases.x);
+    float diff_macro = log(Bases.z) - log(Bases.y);
+    R_val += diff_micro * Contrast_Micro;
+    R_val += diff_macro * Contrast_Macro;
+
     // High-frequency reflectance detail used later for contrast masking
     float hf_detail  = L - Base;
-
     float sm_manual  = clamp(ManualExposure, 0.01, 0.99);
     float sm_adapt   = EnableAdaptation ? clamp(tex2Dfetch(sTexAdapt, 0).r, 0.01, 0.99) : sm_manual;
     float scene_mean = EnableAdaptation ? lerp(sm_manual, sm_adapt, AdaptationStrength) : sm_manual;
@@ -804,6 +1078,7 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     float A = 0.0, B = 0.0;
     float exp_R_new = exp(R_new);
     float v_scales[5] = { v1, v2, v3, v4, v5 };
+
     [unroll]
     for (int i = 0; i < 5; i++)
     {
@@ -959,18 +1234,72 @@ technique DZ_PerceptualHDR
     ui_label = "Perceptual HDR";
 >
 {
-    pass Luma         { VertexShader = PostProcessVS; PixelShader = PS_Luma;              RenderTarget = TexLuma;       }
-    pass Luma512      { VertexShader = PostProcessVS; PixelShader = PS_Luma512;           RenderTarget = TexLuma512;    }
-    pass Luma256      { VertexShader = PostProcessVS; PixelShader = PS_Luma256;           RenderTarget = TexLuma256;    }
-    pass Luma128      { VertexShader = PostProcessVS; PixelShader = PS_Luma128;           RenderTarget = TexLuma128;    }
-    pass Luma64       { VertexShader = PostProcessVS; PixelShader = PS_Luma64;            RenderTarget = TexLuma64;     }
-    pass CalcAdapt    { VertexShader = PostProcessVS; PixelShader = PS_CalcAdapt;         RenderTarget = TexAdapt;      }
-    pass SaveParams   { VertexShader = PostProcessVS; PixelShader = PS_SaveParams;        RenderTarget = TexLastParams; }
-    pass SaveAdapt    { VertexShader = PostProcessVS; PixelShader = PS_SaveAdapt;         RenderTarget = TexLastAdapt;  }
-    pass CalcMeansH   { VertexShader = PostProcessVS; PixelShader = PS_CalcMeansH;        RenderTarget = TexTempMeans;  }
-    pass CalcMeansV   { VertexShader = PostProcessVS; PixelShader = PS_CalcMeansV;        RenderTarget = TexStats;      }
-    pass GuidedFilter { VertexShader = PostProcessVS; PixelShader = PS_GuidedFilterResult; RenderTarget = TexVarI;      }
-    pass Combine      { VertexShader = PostProcessVS; PixelShader = PS_FinalCombine;                                    }
+    pass Luma         { VertexShader = PostProcessVS; PixelShader = PS_Luma;                 RenderTarget = TexLuma;           }
+    pass Luma512      { VertexShader = PostProcessVS; PixelShader = PS_Luma512;              RenderTarget = TexLuma512;        }
+    pass Luma256      { VertexShader = PostProcessVS; PixelShader = PS_Luma256;              RenderTarget = TexLuma256;        }
+    pass Luma128      { VertexShader = PostProcessVS; PixelShader = PS_Luma128;              RenderTarget = TexLuma128;        }
+    pass Luma64       { VertexShader = PostProcessVS; PixelShader = PS_Luma64;               RenderTarget = TexLuma64;         }
+    pass CalcAdapt    { VertexShader = PostProcessVS; PixelShader = PS_CalcAdapt;            RenderTarget = TexAdapt;          }
+    pass SaveParams   { VertexShader = PostProcessVS; PixelShader = PS_SaveParams;           RenderTarget = TexLastParams;     }
+    pass SaveAdapt    { VertexShader = PostProcessVS; PixelShader = PS_SaveAdapt;            RenderTarget = TexLastAdapt;      }
+
+    // Medium Scale Filter passes
+    pass CalcMeansH_Medium
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_CalcMeansH_Medium;
+        RenderTarget = TexTempMeansMedium;
+    }
+
+    pass CalcMeansV_Medium
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_CalcMeansV_Medium;
+        RenderTarget = TexStatsMedium;
+    }
+
+    // Micro Scale Filter passes
+    pass CalcMeansH_Micro
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_CalcMeansH_Micro;
+        RenderTarget = TexTempMeansMicro;
+    }
+
+    pass CalcMeansV_Micro
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_CalcMeansV_Micro;
+        RenderTarget = TexStatsMicro;
+    }
+
+    // Macro Scale Filter passes
+    pass CalcMeansH_Macro
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_CalcMeansH_Macro;
+        RenderTarget = TexTempMeansMacro;
+    }
+
+    pass CalcMeansV_Macro
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_CalcMeansV_Macro;
+        RenderTarget = TexStatsMacro;
+    }
+
+    pass GuidedFilter
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_GuidedFilterResult;
+        RenderTarget = TexVarI;
+    }
+
+    pass Combine
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_FinalCombine;
+    }
 }
 
 } // namespace DZPHDR
