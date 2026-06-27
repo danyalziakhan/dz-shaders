@@ -239,6 +239,11 @@ uniform float Contrast_Shadow_Strength <
     ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
 > = 0.25;
 
+uniform bool EnableDithering <
+    ui_label = "Enable Dithering";
+    ui_tooltip = "Applies high-frequency analytical blue-noise style dithering at the end of the pipeline to eliminate 8-bit banding artifacts.";
+> = true;
+
 uniform bool EnableAdaptation <
     ui_label = "Enable Eye Adaptation";
     ui_tooltip = "Enables dynamic brightness adaptation. Disable to use a fixed exposure value (prevents washing out dark scenes).";
@@ -476,6 +481,12 @@ uniform bool EnablePurkinje <
 
 uniform bool Debug_Mask <
     ui_label = "Debug: Visualize Contrast Mask";
+    ui_category = "Debug";
+    ui_type = "radio";
+> = false;
+
+uniform bool Debug_Dithering <
+    ui_label = "Debug: Visualize Dithering";
     ui_category = "Debug";
     ui_type = "radio";
 > = false;
@@ -871,6 +882,39 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         return contrast_shadow * 10.0;
     }
     blended = saturate(blended * (1.0 - contrast_shadow));
+
+    // Interleaved Gradient Noise (IGN)
+    float dither = 0.0;
+
+    if (EnableDithering || Debug_Dithering)
+    {
+        float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+        dither = frac(magic.z * frac(dot(input.uv * bb::ScreenSize, magic.xy)));
+    }
+
+    float lum_dx = abs(ddx(GetLuminance(blended)));
+    float lum_dy = abs(ddy(GetLuminance(blended)));
+
+    float gradient = lum_dx + lum_dy;
+
+    float banding_mask = saturate(1.0 - gradient * 64.0);
+    banding_mask *= banding_mask;
+
+    if (Debug_Dithering)
+    {
+        float applied =
+            banding_mask *
+            ((dither - 0.5) / 255.0);
+
+        return saturate(applied.xxx * 255.0 + 0.5);
+    }
+
+    [branch]
+    if (EnableDithering)
+    {
+        blended += banding_mask * ((dither - 0.5) / 255.0);
+        blended = saturate(blended);
+    }
 
     return blended;
 }
