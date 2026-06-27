@@ -121,7 +121,7 @@ A perceptual HDR shader that attempts to restore depth and dynamic range on stan
 
 The core technique comes from BarbatosBachiko's PHDR shader, which combines Weighted Least Squares smoothing for base layer extraction, Selective Reflectance Scaling to selectively amplify the log-luminance ratio for pixels above the scene mean, Virtual Illumination Generation across five virtual exposure points, and a weighted fusion of those samples back into a single output. The result is a frame that reads as having more perceived depth than the input without obvious tone mapping artifacts.
 
-PHDR2 adds seven things on top of that foundation.
+PHDR2 adds six things on top of that foundation.
 
 The first is per-zone tonal adaptation. The original PHDR applies no per-pixel brightening or darkening beyond the base fusion - the exposure logic only feeds the brightness level into the tone mapping calculation. PHDR2 exposes six Lift and Pull sliders that let you independently control how aggressively the shader brightens highlights, midtones, and shadows in dark scenes, and suppresses them in bright scenes. These controls function seamlessly whether dynamic eye adaptation is enabled or manual exposure is used. All six sliders default to 1.0, which is neutral and identical to the original PHDR output. Push above 1.0 to amplify the response in that zone, or pull below 1.0 to suppress it. The formula uses the standard 4.0 midtone coefficient so all three zones respond proportionally to the same slider travel.
 
@@ -133,9 +133,7 @@ The fourth is mathematically true frame rate independent eye adaptation. It repl
 
 The fifth is simultaneous contrast masking. This adds a microscopic dark halo around bright highlights by slightly deepening pixels on the shadow side of an edge. By selectively darkening the shadow boundary, it exploits the human eye’s natural contrast enhancement (the Chevreul illusion), making bright areas appear more luminous without increasing their actual brightness. Unlike standard clarity filters, it uses the smoothed `Base` layer for the mask, ensuring it is spatially aware and ignores high frequency noise.
 
-The sixth is the Helmholtz Kohlrausch (HK) effect, which tricks the brain into perceiving blinding highlights by boosting chroma as luminance approaches 1.0. This implementation incorporates hue dependency, which applies maximum saturation boosts to blues and reds while leaving yellows virtually unchanged. It also features photopic masking based on scene average luminance, which ensures the effect only activates in well lit environments. To maintain image fidelity, it utilizes luminance preserving gamut recovery that prevents color clipping and crushing in extreme highlights.
-
-The seventh is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan to maximize contrast. It smoothly fades out as the scene brightens to prevent unnatural color shifts and eliminates transition pops at the 0.30 luminance threshold.  
+The sixth is the Purkinje effect. In dark scenes, it simulates scotopic vision by suppressing red and shifting shadow floors toward cyan to maximize contrast. It smoothly fades out as the scene brightens to prevent unnatural color shifts and eliminates transition pops at the 0.30 luminance threshold.  
 
 The shader is self-contained and has no dependency on external header files.
 
@@ -169,7 +167,6 @@ The shader is self-contained and has no dependency on external header files.
 | Shadow Tint Base Intensity | 0.08 | Maximum opacity of the cool tint at the strongest contrast ratio. |
 | Highlight Contrast Threshold | 1.25 | How much brighter than the scene average a pixel must be to receive the warm tint. |
 | Shadow Contrast Threshold | 0.75 | How much darker than the scene average a pixel must be to receive the cool tint. |
-| Enable Helmholtz-Kohlrausch Effect | on | Simulates perceived brightness boost in high-chroma colors. |
 | Enable Purkinje Effect | on | Simulates scotopic vision shift in dark scenes. |
 | Debug: Visualize Contrast Mask | off | Displays the contrast mask as a white overlay. Useful for verifying the shadow side edge detection. |
 | Input Format | Auto | Color space of the game. Auto detects from the ReShade buffer color space. |
