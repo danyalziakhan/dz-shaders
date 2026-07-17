@@ -1192,14 +1192,14 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // Simultaneous Contrast Masking: create a microscopic dark halo around bright
     // objects by slightly deepening pixels that sit on the shadow side of an edge.
     // hf_detail < 0 identifies pixels darker than their local base (shadow boundaries).
-    float contrast_shadow = saturate(-hf_detail) * Contrast_Shadow_Strength;
+    // A 3.0 multiplier increases visibility, capping the raw mask at 0.40 prevents the line from dropping to pure black.
+    float contrast_shadow = min(saturate(-hf_detail * 3.0), 0.40) * Contrast_Shadow_Strength;
 
     // Visualization block
     if (Debug_Mask)
     {
-        // The default mask strength is 0.15, so we multiply by 10 to make 
-        // the subtle dark halo clearly visible as bright pixels.
-        return contrast_shadow * 10.0;
+        // We multiply by 5 to make the subtle dark halo clearly visible as bright pixels.
+        return contrast_shadow * 5.0;
     }
     blended = saturate(blended * (1.0 - contrast_shadow));
 
