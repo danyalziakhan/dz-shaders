@@ -143,8 +143,44 @@ uniform float AdaptationTime <
     ui_min = 0.0; ui_max = 1.0;
     ui_label = "Eye Adaptation Speed";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "Time in seconds for the eye to adjust to brightness changes. Higher = Smoother/Slower.";
+    ui_tooltip = "Time in seconds for the eye to adjust when a scene gets BRIGHTER\n"
+                 "(light adaptation). Higher = Smoother/Slower.\n"
+                 "Darkening uses this value scaled by the Dark Adaptation Multiplier.";
 > = 0.5;
+
+uniform float DarkAdaptationMult <
+    ui_type = "slider";
+    ui_min = 1.0; ui_max = 8.0;
+    ui_step = 0.1;
+    ui_label = "Dark Adaptation Multiplier";
+    ui_category = "Eye Adaptation";
+    ui_tooltip = "The human eye brightens quickly but dark-adapts much more slowly.\n"
+                 "When the scene gets DARKER, adaptation time is multiplied by this\n"
+                 "factor, so the effect eases into shadow more gradually.\n\n"
+                 "1.0 = symmetric (old behavior). 2-4 is realistic.";
+> = 2.5;
+
+uniform float AdaptMin <
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 0.5;
+    ui_step = 0.001;
+    ui_label = "Adaptation Floor";
+    ui_category = "Eye Adaptation";
+    ui_tooltip = "Lower clamp on the measured scene brightness. Raising this stops a\n"
+                 "near-black frame (e.g. a fade-out or a wall of shadow) from dragging\n"
+                 "the exposure all the way to the floor and blowing out the next shot.";
+> = 0.0;
+
+uniform float AdaptMax <
+    ui_type = "slider";
+    ui_min = 0.5; ui_max = 1.0;
+    ui_step = 0.001;
+    ui_label = "Adaptation Ceiling";
+    ui_category = "Eye Adaptation";
+    ui_tooltip = "Upper clamp on the measured scene brightness. Lowering this stops a\n"
+                 "white flash (explosion, muzzle flare) from railing the exposure and\n"
+                 "crushing the scene dark for a moment afterwards.";
+> = 1.0;
 
 uniform float ManualExposure <
     ui_type = "slider";
@@ -458,6 +494,24 @@ namespace DZPHDR
         Texture = TexLuma;
     };
 
+    // Log-luminance copy of TexLuma. Eye adaptation averages this instead of
+    // TexLuma so the scene metric is a geometric (log) mean, which is far more
+    // stable than an arithmetic mean - a few very bright pixels no longer drag
+    // the whole exposure. Kept separate because the guided filters and the
+    // final combine still need the linear TexLuma.
+    texture TexLumaLog
+    {
+        Width     = BUFFER_WIDTH;
+        Height    = BUFFER_HEIGHT;
+        Format    = R16F;
+        MipLevels = LUMA_FULLRES_MIPS;
+    };
+
+    sampler sTexLumaLog
+    {
+        Texture = TexLumaLog;
+    };
+
     texture TexLuma512
     {
         Width     = 512;
@@ -702,19 +756,29 @@ void PS_Luma(VS_OUTPUT input, out float luma : SV_Target)
     luma = GetLuminance(tex2D(sTexColor, input.uv).rgb);
 }
 
+void PS_LumaLog(VS_OUTPUT input, out float logLuma : SV_Target)
+{
+    // Store log-luminance so downstream box/mip averaging computes a geometric
+    // mean once exp()'d back. The floor keeps pure-black pixels from sending the
+    // log to -inf while still weighting shadows heavily (the perceptual intent).
+    float luma = tex2Dlod(sTexLuma, float4(input.uv, 0, 0)).r;
+    logLuma = log(max(luma, 1e-4));
+}
+
 float PS_Luma512(VS_OUTPUT input) : SV_Target
 {
     // Screen resolution is well above 1024, so a 4-tap box at mip 0 would skip
     // most source pixels and alias the whole downsample chain. Pull from the
-    // TexLuma mip whose resolution is closest to 1024 so the 4 bilinear taps
-    // cover the full footprint of one 512x512 texel.
+    // log-luma mip whose resolution is closest to 1024 so the 4 bilinear taps
+    // cover the full footprint of one 512x512 texel. Everything downstream in
+    // this pyramid stays in the log domain until SampleAvgLuma exp()s it.
     const float srcMip = max(0.0, ceil(log2(max(BUFFER_WIDTH, BUFFER_HEIGHT) / 1024.0)));
     const float2 ps = exp2(srcMip) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
     float v = 0.0;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2(-0.5, -0.5) * ps, 0, srcMip)).r;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2( 0.5, -0.5) * ps, 0, srcMip)).r;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2(-0.5,  0.5) * ps, 0, srcMip)).r;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2( 0.5,  0.5) * ps, 0, srcMip)).r;
+    v += tex2Dlod(sTexLumaLog, float4(input.uv + float2(-0.5, -0.5) * ps, 0, srcMip)).r;
+    v += tex2Dlod(sTexLumaLog, float4(input.uv + float2( 0.5, -0.5) * ps, 0, srcMip)).r;
+    v += tex2Dlod(sTexLumaLog, float4(input.uv + float2(-0.5,  0.5) * ps, 0, srcMip)).r;
+    v += tex2Dlod(sTexLumaLog, float4(input.uv + float2( 0.5,  0.5) * ps, 0, srcMip)).r;
     return v * 0.25;
 }
 
@@ -753,13 +817,17 @@ float PS_Luma64(VS_OUTPUT input) : SV_Target
 
 float SampleAvgLuma()
 {
+    // Every source here holds log-luminance, so exp() the sampled mip to recover
+    // the geometric mean of the covered region.
     float4 uvMip = float4(0.5, 0.5, 0.0, TriggerRadius);
+    float logAvg;
     [branch]
-    if (LumaTextureSize == 1) return tex2Dlod(sTexLuma512, uvMip).r;
-    if (LumaTextureSize == 2) return tex2Dlod(sTexLuma256, uvMip).r;
-    if (LumaTextureSize == 3) return tex2Dlod(sTexLuma128, uvMip).r;
-    if (LumaTextureSize == 4) return tex2Dlod(sTexLuma64,  uvMip).r;
-    return tex2Dlod(sTexLuma, uvMip).r;
+    if (LumaTextureSize == 1)      logAvg = tex2Dlod(sTexLuma512, uvMip).r;
+    else if (LumaTextureSize == 2) logAvg = tex2Dlod(sTexLuma256, uvMip).r;
+    else if (LumaTextureSize == 3) logAvg = tex2Dlod(sTexLuma128, uvMip).r;
+    else if (LumaTextureSize == 4) logAvg = tex2Dlod(sTexLuma64,  uvMip).r;
+    else                           logAvg = tex2Dlod(sTexLumaLog, uvMip).r;
+    return exp(logAvg);
 }
 
 // ---- Standard (Medium) Guided Scale Filters ----
@@ -888,8 +956,11 @@ void PS_GuidedFilterResult(VS_OUTPUT input, out float3 base_layers : SV_Target)
 
 void PS_CalcAdapt(VS_OUTPUT input, out float adapt : SV_Target)
 {
-    float current = SampleAvgLuma();
-    float last    = tex2Dfetch(sTexLastAdapt, 0).r;
+    // Clamp the raw measurement so a fade-to-black or a white flash can't rail
+    // the adaptation and slam the tonal curves on the next frame.
+    float adaptCeil = max(AdaptMax, AdaptMin + 0.01);
+    float current   = clamp(SampleAvgLuma(), AdaptMin, adaptCeil);
+    float last      = tex2Dfetch(sTexLastAdapt, 0).r;
 
     float4 prevParams = tex2Dfetch(sTexLastParams, 0);
     float4 currParams = float4(float(LumaTextureSize), TriggerRadius, 0.5, 0.5);
@@ -901,8 +972,12 @@ void PS_CalcAdapt(VS_OUTPUT input, out float adapt : SV_Target)
     }
     else
     {
-        // Replaced linear step with continuous exponential decay to ensure frame rate independence
-        float smoothFactor = 1.0 - exp(-(FrameTime * 0.001) / max(AdaptationTime, 0.001));
+        // Asymmetric time constant: brightening (current > last) uses the base
+        // time; darkening eases in more slowly, matching how real eyes recover
+        // fast to light but dark-adapt gradually. Continuous exponential decay
+        // keeps the speed frame-rate independent.
+        float tau = AdaptationTime * ((current < last) ? DarkAdaptationMult : 1.0);
+        float smoothFactor = 1.0 - exp(-(FrameTime * 0.001) / max(tau, 0.001));
         adapt = lerp(last, current, smoothFactor);
     }
     adapt = max(adapt, 1e-5);
@@ -1126,6 +1201,7 @@ technique DZ_PerceptualHDR
 >
 {
     pass Luma         { VertexShader = PostProcessVS; PixelShader = PS_Luma;                 RenderTarget = TexLuma;           }
+    pass LumaLog      { VertexShader = PostProcessVS; PixelShader = PS_LumaLog;              RenderTarget = TexLumaLog;        }
     pass Luma512      { VertexShader = PostProcessVS; PixelShader = PS_Luma512;              RenderTarget = TexLuma512;        }
     pass Luma256      { VertexShader = PostProcessVS; PixelShader = PS_Luma256;              RenderTarget = TexLuma256;        }
     pass Luma128      { VertexShader = PostProcessVS; PixelShader = PS_Luma128;              RenderTarget = TexLuma128;        }
