@@ -78,6 +78,30 @@ uniform float Strength <
     ui_category = "General";
 > = 0.3;
 
+uniform float DynamicIntensity <
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 1.0;
+    ui_step = 0.01;
+    ui_label = "Dark Scene Fade";
+    ui_category = "General";
+    ui_tooltip = "Fades the tone-fusion out as the scene gets very dark, where there\n"
+                 "is little dynamic range left to recover and the effect mostly\n"
+                 "amplifies compression noise and crushed detail.\n\n"
+                 "0.0 = off, the effect holds full INTENSITY at any brightness.\n"
+                 "1.0 = fully fade out below the Dark Scene Fade Threshold.";
+> = 0.5;
+
+uniform float DarkFadeThreshold <
+    ui_type = "slider";
+    ui_min = 0.01; ui_max = 0.30;
+    ui_step = 0.005;
+    ui_label = "Dark Scene Fade Threshold";
+    ui_category = "General";
+    ui_tooltip = "Scene brightness below which the fade reaches full strength.\n"
+                 "The effect ramps smoothly from black up to this value.\n"
+                 "Only relevant when Dark Scene Fade is above 0.";
+> = 0.08;
+
 uniform float Radius <
     ui_type = "slider";
     ui_min = 1.0; ui_max = 30.0;
@@ -157,7 +181,7 @@ uniform float DarkAdaptationMult <
     ui_tooltip = "The human eye brightens quickly but dark-adapts much more slowly.\n"
                  "When the scene gets DARKER, adaptation time is multiplied by this\n"
                  "factor, so the effect eases into shadow more gradually.\n\n"
-                 "1.0 = symmetric (old behavior). 2-4 is realistic.";
+                 "1.0 = symmetric. 2-4 is realistic.";
 > = 2.5;
 
 uniform float AdaptMin <
@@ -169,7 +193,7 @@ uniform float AdaptMin <
     ui_tooltip = "Lower clamp on the measured scene brightness. Raising this stops a\n"
                  "near-black frame (e.g. a fade-out or a wall of shadow) from dragging\n"
                  "the exposure all the way to the floor and blowing out the next shot.";
-> = 0.0;
+> = 0.02;
 
 uniform float AdaptMax <
     ui_type = "slider";
@@ -180,7 +204,7 @@ uniform float AdaptMax <
     ui_tooltip = "Upper clamp on the measured scene brightness. Lowering this stops a\n"
                  "white flash (explosion, muzzle flare) from railing the exposure and\n"
                  "crushing the scene dark for a moment afterwards.";
-> = 1.0;
+> = 0.9;
 
 uniform float ManualExposure <
     ui_type = "slider";
@@ -1054,7 +1078,14 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
     float ratio = clamp((A / (B + 1e-6)) / L, 0.0, 3.0);
 
-    float3 blended = lerp(original, original * ratio, Strength);
+    // Dynamic intensity: ramp the fusion down in very dark scenes, where the
+    // log-ratio has almost no real range to recover and mostly amplifies
+    // compression noise. dark_fade is 1 above the threshold, easing to 0 at
+    // black; DynamicIntensity picks how much of that fade actually applies.
+    float dark_fade        = smoothstep(0.0, DarkFadeThreshold, scene_mean);
+    float effective_strength = Strength * lerp(1.0, dark_fade, DynamicIntensity);
+
+    float3 blended = lerp(original, original * ratio, effective_strength);
 
     float adp_luma    = GetLuminance(blended);
     float3 adp_chroma = blended - adp_luma;
