@@ -14,7 +14,7 @@ A debug and visualization shader for inspecting mipmapped luminance textures.
 
 Many eye adaptation and auto-exposure shaders estimate scene brightness by sampling high mip levels of a luminance texture. The selected mip level has a significant impact on the result, but it can be difficult to visualize what each mip actually contains or how much image detail remains at a given level.
 
-MipScope maintains five luminance textures at different resolutions (full resolution, 512×512, 256×256, 128×128, and 64×64), each with a complete mip chain. You can switch between textures, inspect individual mip levels, and visualize how sampling behavior changes across the chain.
+MipScope maintains five luminance textures at different resolutions (full resolution, 512×512, 256×256, 128×128, and 64×64), each with a complete mip chain. The smaller textures are built by box-downsampling the chain rather than point-sampling the screen, so they represent what a real downsampled luma texture looks like instead of an aliased subsample. The full-resolution chain length is derived from your actual screen size, so the tool reports the true number of mip levels (for example 11 at 1080p, 12 at 1440p and 4K). You can switch between textures, inspect individual mip levels, and visualize how sampling behavior changes across the chain.
 
 **Requires:** `ReShade.fxh` only. No additional shader packs needed.
 
@@ -30,9 +30,9 @@ Shows all mip levels at once in a 4-column grid, starting from mip 0. The select
 
 **Mode 2: Sample Region Overlay**
 
-Shows the scene in grayscale with a yellow rectangle marking the approximate screen region that the sampled texel covers. The box size is `(2^mipLevel / textureSize)` per axis, centered on your Sample UV setting.
+Shows the scene in grayscale with a yellow rectangle marking the screen region that the sampled texel covers. The box snaps to the actual texel grid at the selected mip: it finds which texel your Sample UV falls into and outlines exactly that texel's footprint, so the overlay lines up with real texel boundaries rather than just being centered on the cursor.
 
-The last valid mip level of any texture is always 1 pixel by 1 pixel, so that single sample represents your entire image. If you ask for a mip beyond that, the GPU clamps it there anyway, so the region stays at 100%. This is the correct behavior, it's exactly what happens in a real adaptation shader that over-requests mip levels. (The calculation here is an approximation based on standard box filtering, so driver behavior might differ slightly with non-power-of-two textures, but it's close.)
+The last valid mip level of any texture is always 1 pixel by 1 pixel, so that single sample represents your entire image. If you ask for a mip beyond that, the GPU clamps it there anyway, so the region stays at 100%. This is the correct behavior, it's exactly what happens in a real adaptation shader that over-requests mip levels. (Texel sizes are computed from standard box-filter dimensions, so on non-power-of-two textures the driver's exact footprint might differ by a fraction of a texel, but it's close.)
 
 **Mode 3: Luminance Heatmap**
 
@@ -94,7 +94,10 @@ Designed and tuned for Mortal Kombat 1. Should work for any game that uses reali
 | Blood Saturation Threshold | 0.55 | Minimum color saturation a pixel must have to qualify as blood. Raise to exclude dull or faded reds (rust, worn cloth, dark brick). Lower if blood looks muted and is not being fully highlighted. |
 | Shadow Cutoff | 0.01 | Pixels darker than this brightness are excluded. Keeps very dark shadows and near-black surfaces from being tagged as blood. The default is very permissive — only raise it if dark areas are incorrectly picking up. |
 | Highlight Cutoff | 0.40 | Pixels brighter than this brightness are excluded. Prevents fire, glowing UI elements, and bright red surfaces from triggering. Lower if non-blood reds are slipping through. Raise if blood on bright surfaces is getting cut out. |
+| Edge Softness | 0.10 | Width of the soft ramp on the saturation and highlight gates. Lower values give crisper, harder isolation edges; higher values feather the transition so blood blends more gradually into the desaturated background. |
 | Background Color Strength | 0.9 | How much color is retained in non-blood areas. 1.0 = fully original colors, 0.0 = completely grayscale. The default applies subtle desaturation so blood stands out without making the scene look stylized. |
+| Background Brightness | 1.0 | Dims the non-blood areas of the scene. 1.0 = untouched. Lower values darken everything except blood, making blood read as brighter without touching its color. |
+| Mask Smoothing | 0.0 | Blends the isolation mask with a small blur of itself to calm the shimmer noisy or compressed red pixels cause in motion. 0.0 = off (sharpest). Higher values are steadier but soften the blood edges slightly. |
 | Blood Color Intensity | 1.2 | Multiplies the saturation of isolated blood pixels. 1.0 = natural saturation. Above 1.0 makes blood more vivid than the original image (up to 2.0 = double saturation). Below 1.0 pulls blood toward gray. Fully independent of Background Color Strength. |
 | Show Debug Mask | off | Displays the isolation mask as white pixels against a black background. Useful for visualizing which pixels are being detected as blood and adjusting the three gates (hue, saturation, brightness) to dial in coverage. |
 
@@ -207,6 +210,10 @@ The shader includes internal logic to prevent the Purkinje effect and Split Toni
 ## Installation
 
 Copy the contents of `Shaders/` into your ReShade `Shaders` folder. Enable shaders from the ReShade overlay. MipScope replaces the whole frame with debug visuals, so toggle it on only when inspecting and off when playing. BloodHighlight is designed to run during normal gameplay.
+
+## Development note
+
+AI assistance was used during the development of these shaders, for tasks such as reviewing the code, finding bugs, refining the implementation, and writing documentation. All changes were reviewed and tested before being included.
 
 ## License
 
