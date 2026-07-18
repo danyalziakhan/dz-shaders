@@ -53,156 +53,17 @@ void PostProcessVS(in uint id : SV_VertexID, out float4 position : SV_Position, 
     position = float4(texcoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
 }
 
-//===========================================================|
-// :: Inlined from bb_colorspace.fxh                      :: |
-// :: Credit: BarbatosBachiko / Reshade-Shaders           :: |
-//===========================================================|
+//-------------------|
+// :: Luminance   :: |
+//-------------------|
 
-#ifndef BUFFER_COLOR_SPACE
-#define BUFFER_COLOR_SPACE 0
-#endif
-
-uniform int HDR_Input_Format <
-    ui_category_closed = true;
-    ui_category = "HDR";
-    ui_label = "Input Format";
-    ui_tooltip = "Select the color space of the game.\n"
-                 "Auto = Detect automatically (Recommended)\n"
-                 "SDR/HDR formats = Force specific color space\n"
-                 "Raw = No conversion applied";
-    ui_type = "combo";
-    ui_items = "Auto\0sRGB (SDR)\0scRGB (HDR Linear)\0HDR10 (PQ)\0Raw (No Conversion)\0";
-> = 0;
-
-uniform float HDR_Peak_Nits <
-    ui_category = "HDR";
-    ui_label = "HDR Peak Brightness (Nits)";
-    ui_tooltip = "Set this to match your monitor's maximum HDR brightness capabilities (e.g., 400 for DisplayHDR 400, 1000 for high-end HDR). Only affects HDR formats.";
-    ui_type = "drag";
-    ui_min = 400.0; ui_max = 10000.0; ui_step = 10.0;
-> = 1000.0;
-
-uniform bool SDR_Enable_ITM <
-    ui_category = "HDR";
-    ui_label = "Enable SDR Inverse Tonemapping";
-    ui_tooltip = "Expands SDR brightness to HDR range using Inverse Reinhard. Disabled by default as it introduces nonlinear distortion during blending.";
-> = true;
-
-uniform bool SDR_ITM_Hue_Preserving <
-    ui_category = "HDR";
-    ui_label = "SDR ITM Hue Preserving";
-    ui_tooltip = "Enable to preserve original hues during brightness expansion.\n"
-                 "Disable for per-channel expansion.";
-> = true;
-
-static const float3 LUMA_709  = float3(0.2126, 0.7152, 0.0722);
-static const float3 LUMA_2020 = float3(0.2627, 0.6780, 0.0593);
-
-static const float PQ_M1 = 0.1593017578125;
-static const float PQ_M2 = 78.84375;
-static const float PQ_C1 = 0.8359375;
-static const float PQ_C2 = 18.8515625;
-static const float PQ_C3 = 18.6875;
-
-int GetHDRMode()
-{
-    if (HDR_Input_Format != 0)
-        return HDR_Input_Format;
-
-#if BUFFER_COLOR_SPACE == 1
-    return 1;
-#elif BUFFER_COLOR_SPACE == 2
-    return 2;
-#elif BUFFER_COLOR_SPACE == 3
-    return 3;
-#else
-    return 1;
-#endif
-}
-
-float3 PQ2Linear(float3 color)
-{
-    float3 val = max(pow(abs(color), 1.0 / PQ_M2) - PQ_C1, 0.0);
-    float3 den = PQ_C2 - PQ_C3 * pow(abs(color), 1.0 / PQ_M2);
-    float3 linearHdr = pow(abs(val / den), 1.0 / PQ_M1);
-    return linearHdr * (10000.0 / HDR_Peak_Nits);
-}
-
-float3 Linear2PQ(float3 linearColor)
-{
-    float3 Y = max(0.0, linearColor * (HDR_Peak_Nits / 10000.0));
-    float3 num = PQ_C1 + PQ_C2 * pow(Y, PQ_M1);
-    float3 den = 1.0 + PQ_C3 * pow(Y, PQ_M1);
-    return pow(num / den, PQ_M2);
-}
-
-float3 sRGB2Linear(float3 x)
-{
-    float3 linear_srgb = (x < 0.04045) ? (x / 12.92) : pow(abs((x + 0.055) / 1.055), 2.4);
-
-    if (!SDR_Enable_ITM)
-        return linear_srgb;
-
-    float3 expanded_rgb;
-    if (SDR_ITM_Hue_Preserving)
-    {
-        float luma = dot(linear_srgb, LUMA_709);
-        float safe_luma = min(luma, 0.99);
-        float expanded_luma = safe_luma / max(1.0 - safe_luma, 0.001);
-        expanded_rgb = linear_srgb * (expanded_luma / max(luma, 1e-5));
-    }
-    else
-    {
-        float3 safe_rgb = min(linear_srgb, 0.99);
-        expanded_rgb = (safe_rgb / max(1.0 - safe_rgb, 0.001));
-    }
-    return expanded_rgb;
-}
-
-float3 Linear2sRGB(float3 x)
-{
-    x = max(x, 0.0);
-
-    if (SDR_Enable_ITM)
-    {
-        if (SDR_ITM_Hue_Preserving)
-        {
-            float luma = dot(x, LUMA_709);
-            float compressed_luma = luma / (1.0 + luma);
-            x = x * (compressed_luma / max(luma, 1e-5));
-        }
-        else
-        {
-            x = x / (1.0 + x);
-        }
-    }
-
-    return (x < 0.0031308) ? (12.92 * x) : (1.055 * pow(abs(x), 1.0 / 2.4) - 0.055);
-}
-
-float3 Input2Linear(float3 color)
-{
-    int mode = GetHDRMode();
-    if (mode == 4) return color;
-    if (mode == 2) return color * (80.0 / HDR_Peak_Nits);
-    if (mode == 3) return PQ2Linear(color);
-    return sRGB2Linear(color);
-}
-
-float3 Linear2Output(float3 color)
-{
-    int mode = GetHDRMode();
-    if (mode == 4) return color;
-    if (mode == 2) return color * (HDR_Peak_Nits / 80.0);
-    if (mode == 3) return Linear2PQ(color);
-    return Linear2sRGB(color);
-}
+// The shader operates entirely in the backbuffer's native SDR gamma space;
+// all internal math is tuned for values in [0, 1].
+static const float3 LUMA_709 = float3(0.2126, 0.7152, 0.0722);
 
 float GetLuminance(float3 color)
 {
-    int mode = GetHDRMode();
-    float3 lumaCoeff = (mode == 2 || mode == 3) ? LUMA_2020 : LUMA_709;
-    return dot(color, lumaCoeff);
+    return dot(color, LUMA_709);
 }
 
 //----------|
@@ -332,7 +193,7 @@ uniform int LumaTextureSize <
 
 uniform float TriggerRadius <
     ui_type = "slider";
-    ui_min = 1.0; ui_max = 11.0;
+    ui_min = 1.0; ui_max = 12.0;
     ui_step = 0.1;
     ui_label = "Adaptation Trigger Radius";
     ui_category = "Eye Adaptation";
@@ -340,10 +201,11 @@ uniform float TriggerRadius <
                  "compute average scene brightness for eye adaptation.\n\n"
                  "Lower values sample a smaller, more central area of the image.\n"
                  "Higher values pull the sample toward a whole-image average.\n"
-                 "At maximum (11), any texture size will have reached its 1x1 mip\n"
+                 "At maximum (12), any texture size will have reached its 1x1 mip\n"
                  "and will return the average luminance of the entire frame.\n\n"
                  "Valid top of chain per texture size:\n"
                  "  Full Res 1080p : mip 10   Full Res 1440p : mip 11\n"
+                 "  Full Res 4K    : mip 12\n"
                  "  512 x 512      : mip  9   256 x 256      : mip  8\n"
                  "  128 x 128      : mip  7    64 x 64       : mip  6\n\n"
                  "Values beyond the preset's valid range are GPU-clamped to the\n"
@@ -567,6 +429,14 @@ uniform float FrameTime < source = "frametime"; >;
 #define GW (BUFFER_WIDTH / SCALE)
 #define GH (BUFFER_HEIGHT / SCALE)
 
+// Enough mip levels for the full-res luma chain to reach 1x1: a 4K buffer
+// needs 13 levels (0-12); 12 suffices up to 2048 pixels on the long axis.
+#if (BUFFER_WIDTH > 2048) || (BUFFER_HEIGHT > 2048)
+    #define LUMA_FULLRES_MIPS 13
+#else
+    #define LUMA_FULLRES_MIPS 12
+#endif
+
 namespace DZPHDR
 {
     texture TexColor : COLOR;
@@ -580,7 +450,7 @@ namespace DZPHDR
         Width     = BUFFER_WIDTH;
         Height    = BUFFER_HEIGHT;
         Format    = R16F;
-        MipLevels = 12;
+        MipLevels = LUMA_FULLRES_MIPS;
     };
 
     sampler sTexLuma
@@ -834,12 +704,17 @@ void PS_Luma(VS_OUTPUT input, out float luma : SV_Target)
 
 float PS_Luma512(VS_OUTPUT input) : SV_Target
 {
-    float2 ps = float2(1.0 / BUFFER_WIDTH, 1.0 / BUFFER_HEIGHT);
+    // Screen resolution is well above 1024, so a 4-tap box at mip 0 would skip
+    // most source pixels and alias the whole downsample chain. Pull from the
+    // TexLuma mip whose resolution is closest to 1024 so the 4 bilinear taps
+    // cover the full footprint of one 512x512 texel.
+    const float srcMip = max(0.0, ceil(log2(max(BUFFER_WIDTH, BUFFER_HEIGHT) / 1024.0)));
+    const float2 ps = exp2(srcMip) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
     float v = 0.0;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2(-0.5, -0.5) * ps, 0, 0)).r;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2( 0.5, -0.5) * ps, 0, 0)).r;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2(-0.5,  0.5) * ps, 0, 0)).r;
-    v += tex2Dlod(sTexLuma, float4(input.uv + float2( 0.5,  0.5) * ps, 0, 0)).r;
+    v += tex2Dlod(sTexLuma, float4(input.uv + float2(-0.5, -0.5) * ps, 0, srcMip)).r;
+    v += tex2Dlod(sTexLuma, float4(input.uv + float2( 0.5, -0.5) * ps, 0, srcMip)).r;
+    v += tex2Dlod(sTexLuma, float4(input.uv + float2(-0.5,  0.5) * ps, 0, srcMip)).r;
+    v += tex2Dlod(sTexLuma, float4(input.uv + float2( 0.5,  0.5) * ps, 0, srcMip)).r;
     return v * 0.25;
 }
 
@@ -888,36 +763,36 @@ float SampleAvgLuma()
 }
 
 // ---- Standard (Medium) Guided Scale Filters ----
+// Integer tap counts keep the window exactly symmetric; a float accumulator
+// (x += step) can drop the +r endpoint to rounding error and bias the mean.
 void PS_CalcMeansH_Medium(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float step = max(1.0, Radius / 3.0);
+    float stepSize = max(1.0, Radius / 3.0);
+    int taps = int(Radius / stepSize + 1e-3);
     float2 sum = 0.0;
-    float count = 0.0;
 
-    for (float x = -Radius; x <= Radius; x += step)
+    for (int i = -taps; i <= taps; i++)
     {
-        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(x * ps.x, 0), 0, 0)).r;
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, 0)).r;
         sum += float2(val, val * val);
-        count += 1.0;
     }
-    mean_horiz = sum / count;
+    mean_horiz = sum / (2 * taps + 1);
 }
 
 void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 mean_corr : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float step = max(1.0, Radius / 3.0);
+    float stepSize = max(1.0, Radius / 3.0);
+    int taps = int(Radius / stepSize + 1e-3);
     float2 sum = 0.0;
-    float count = 0.0;
 
-    for (float y = -Radius; y <= Radius; y += step)
+    for (int i = -taps; i <= taps; i++)
     {
-        float2 val = tex2Dlod(sTexTempMeansMedium, float4(input.uv + float2(0, y * ps.y), 0, 0)).rg;
+        float2 val = tex2Dlod(sTexTempMeansMedium, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
-        count += 1.0;
     }
-    mean_corr = sum / count;
+    mean_corr = sum / (2 * taps + 1);
 }
 
 // ---- Micro Guided Scale Filters ----
@@ -925,34 +800,32 @@ void PS_CalcMeansH_Micro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float r = max(1.0, Radius / 3.0);
-    float step = max(1.0, r / 3.0);
+    float stepSize = max(1.0, r / 3.0);
+    int taps = int(r / stepSize + 1e-3);
     float2 sum = 0.0;
-    float count = 0.0;
 
-    for (float x = -r; x <= r; x += step)
+    for (int i = -taps; i <= taps; i++)
     {
-        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(x * ps.x, 0), 0, 0)).r;
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, 0)).r;
         sum += float2(val, val * val);
-        count += 1.0;
     }
-    mean_horiz = sum / count;
+    mean_horiz = sum / (2 * taps + 1);
 }
 
 void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float r = max(1.0, Radius / 3.0);
-    float step = max(1.0, r / 3.0);
+    float stepSize = max(1.0, r / 3.0);
+    int taps = int(r / stepSize + 1e-3);
     float2 sum = 0.0;
-    float count = 0.0;
 
-    for (float y = -r; y <= r; y += step)
+    for (int i = -taps; i <= taps; i++)
     {
-        float2 val = tex2Dlod(sTexTempMeansMicro, float4(input.uv + float2(0, y * ps.y), 0, 0)).rg;
+        float2 val = tex2Dlod(sTexTempMeansMicro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
-        count += 1.0;
     }
-    mean_corr = sum / count;
+    mean_corr = sum / (2 * taps + 1);
 }
 
 // ---- Macro Guided Scale Filters ----
@@ -960,34 +833,32 @@ void PS_CalcMeansH_Macro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float r = min(90.0, Radius * 3.0);
-    float step = max(1.0, r / 3.0);
+    float stepSize = max(1.0, r / 3.0);
+    int taps = int(r / stepSize + 1e-3);
     float2 sum = 0.0;
-    float count = 0.0;
 
-    for (float x = -r; x <= r; x += step)
+    for (int i = -taps; i <= taps; i++)
     {
-        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(x * ps.x, 0), 0, 0)).r;
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, 0)).r;
         sum += float2(val, val * val);
-        count += 1.0;
     }
-    mean_horiz = sum / count;
+    mean_horiz = sum / (2 * taps + 1);
 }
 
 void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float r = min(90.0, Radius * 3.0);
-    float step = max(1.0, r / 3.0);
+    float stepSize = max(1.0, r / 3.0);
+    int taps = int(r / stepSize + 1e-3);
     float2 sum = 0.0;
-    float count = 0.0;
 
-    for (float y = -r; y <= r; y += step)
+    for (int i = -taps; i <= taps; i++)
     {
-        float2 val = tex2Dlod(sTexTempMeansMacro, float4(input.uv + float2(0, y * ps.y), 0, 0)).rg;
+        float2 val = tex2Dlod(sTexTempMeansMacro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
-        count += 1.0;
     }
-    mean_corr = sum / count;
+    mean_corr = sum / (2 * taps + 1);
 }
 
 void PS_GuidedFilterResult(VS_OUTPUT input, out float3 base_layers : SV_Target)
@@ -1058,19 +929,25 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 
     float Base = Bases.y; // Medium base is default
 
-    float diff_medium = log(L) - log(Bases.y);
-    float R_val = diff_medium * (1.0 + Contrast_Medium);
+    // Non-overlapping log-space frequency bands so each slider controls a
+    // disjoint scale. With all sliders at 0 this reduces to the original
+    // R_val = log(L) - log(Bases.y). The macro band contributes only through
+    // its slider, keeping the medium base as the reconstruction reference.
+    float band_micro  = log(L)       - log(Bases.x);
+    float band_medium = log(Bases.x) - log(Bases.y);
+    float band_macro  = log(Bases.y) - log(Bases.z);
 
-    float diff_micro = log(L) - log(Bases.x);
-    float diff_macro = log(Bases.z) - log(Bases.y);
-    R_val += diff_micro * Contrast_Micro;
-    R_val += diff_macro * Contrast_Macro;
+    float R_val = band_micro  * (1.0 + Contrast_Micro)
+                + band_medium * (1.0 + Contrast_Medium)
+                + band_macro  * Contrast_Macro;
 
     // High-frequency reflectance detail used later for contrast masking
     float hf_detail  = L - Base;
     float sm_manual  = clamp(ManualExposure, 0.01, 0.99);
     float sm_adapt   = EnableAdaptation ? clamp(tex2Dfetch(sTexAdapt, 0).r, 0.01, 0.99) : sm_manual;
-    float scene_mean = EnableAdaptation ? lerp(sm_manual, sm_adapt, AdaptationStrength) : sm_manual;
+    // AdaptationStrength > 1.0 extrapolates the lerp, so re-clamp to keep the
+    // scene mean in a range the VIG sigmoid and contrast ratios can handle.
+    float scene_mean = EnableAdaptation ? clamp(lerp(sm_manual, sm_adapt, AdaptationStrength), 0.01, 0.99) : sm_manual;
 
     float R_new = R_val;
     if (L > scene_mean)
@@ -1140,15 +1017,19 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 
     // [Purkinje] In dark scenes, simulate scotopic vision by suppressing red 
     // and shifting shadow floors toward cyan (blue-green) to maximize contrast.
+    // The two fade sliders' ranges overlap (Start up to 0.20, End from 0.10),
+    // so enforce End > Start to keep the smoothstep edges ordered.
+    float purkinje_fade_end = max(Purkinje_Fade_End, Purkinje_Fade_Start + 0.01);
+
     [branch]
-    if (EnablePurkinje && scene_mean < Purkinje_Fade_End)
+    if (EnablePurkinje && scene_mean < purkinje_fade_end)
     {
         float pixel_luma  = GetLuminance(blended);
 
         // Isolate the effect to the darker halves of the image
         float shadow_mask = 1.0 - smoothstep(0.0, 0.5, pixel_luma);
 
-        float purkinje_strength = 1.0 - smoothstep(Purkinje_Fade_Start, Purkinje_Fade_End, scene_mean);
+        float purkinje_strength = 1.0 - smoothstep(Purkinje_Fade_Start, purkinje_fade_end, scene_mean);
 
         purkinje_mask = purkinje_strength * shadow_mask;
 
