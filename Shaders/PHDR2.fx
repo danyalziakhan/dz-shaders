@@ -480,6 +480,15 @@ uniform bool Debug_Dithering <
 > = false;
 
 uniform float FrameTime < source = "frametime"; >;
+uniform int FrameCount < source = "framecount"; >;
+
+// Quantisation step of the output. Dither amplitude is one such step so it
+// matches the real bit depth of the swapchain (255 for 8-bit, 1023 for 10-bit)
+// instead of always assuming 8-bit.
+#ifndef BUFFER_COLOR_BIT_DEPTH
+    #define BUFFER_COLOR_BIT_DEPTH 8
+#endif
+static const float DitherSteps = float((1 << BUFFER_COLOR_BIT_DEPTH) - 1);
 
 //----------------|
 // :: Textures :: |
@@ -771,6 +780,23 @@ float AdaptionDelta(float luma, float strengthMidtones, float strengthShadows, f
     return midtones + shadows + highlights;
 }
 
+// Roll a colour whose brightest channel exceeds a soft knee back down to 1.0 by
+// scaling all three channels together, so an over-boosted highlight desaturates
+// toward white instead of hard-clipping one channel at a time and shifting hue.
+float3 GamutSoftClip(float3 c)
+{
+    const float knee = 0.8;
+    float m = max(max(c.r, c.g), c.b);
+    [flatten]
+    if (m > knee)
+    {
+        float over       = m - knee;
+        float compressed = knee + (1.0 - knee) * (over / (over + (1.0 - knee)));
+        c *= compressed / m;
+    }
+    return c;
+}
+
 //---------------------|
 // :: Pixel Shaders :: |
 //---------------------|
@@ -854,6 +880,17 @@ float SampleAvgLuma()
     return exp(logAvg);
 }
 
+// Convert accumulated (mean_I, mean_II) moments into guided-filter coefficients
+// (a, b). Computing these at low resolution and letting the final pass bilinearly
+// upsample them is the fast guided filter - it avoids the edge halos that come
+// from deriving 'a' at full res out of already-interpolated moments.
+float2 MomentsToAB(float2 m)
+{
+    float var = m.y - m.x * m.x;
+    float a   = var / (var + Epsilon);
+    return float2(a, m.x * (1.0 - a));
+}
+
 // ---- Standard (Medium) Guided Scale Filters ----
 // Integer tap counts keep the window exactly symmetric; a float accumulator
 // (x += step) can drop the +r endpoint to rounding error and bias the mean.
@@ -872,7 +909,7 @@ void PS_CalcMeansH_Medium(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
     mean_horiz = sum / (2 * taps + 1);
 }
 
-void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 mean_corr : SV_Target)
+void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 ab : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float stepSize = max(1.0, Radius / 3.0);
@@ -884,7 +921,7 @@ void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 mean_corr : SV_Target)
         float2 val = tex2Dlod(sTexTempMeansMedium, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
     }
-    mean_corr = sum / (2 * taps + 1);
+    ab = MomentsToAB(sum / (2 * taps + 1));
 }
 
 // ---- Micro Guided Scale Filters ----
@@ -904,7 +941,7 @@ void PS_CalcMeansH_Micro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
     mean_horiz = sum / (2 * taps + 1);
 }
 
-void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
+void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 ab : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float r = max(1.0, Radius / 3.0);
@@ -917,7 +954,7 @@ void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
         float2 val = tex2Dlod(sTexTempMeansMicro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
     }
-    mean_corr = sum / (2 * taps + 1);
+    ab = MomentsToAB(sum / (2 * taps + 1));
 }
 
 // ---- Macro Guided Scale Filters ----
@@ -937,7 +974,7 @@ void PS_CalcMeansH_Macro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
     mean_horiz = sum / (2 * taps + 1);
 }
 
-void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
+void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 ab : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float r = min(90.0, Radius * 3.0);
@@ -950,30 +987,23 @@ void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 mean_corr : SV_Target)
         float2 val = tex2Dlod(sTexTempMeansMacro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
     }
-    mean_corr = sum / (2 * taps + 1);
+    ab = MomentsToAB(sum / (2 * taps + 1));
 }
 
 void PS_GuidedFilterResult(VS_OUTPUT input, out float3 base_layers : SV_Target)
 {
     float I = tex2D(sTexLuma, input.uv).r;
 
-    // Medium scale (Original Base)
-    float2 stats = tex2D(sTexStatsMedium, input.uv).rg;
-    float var_I = stats.g - stats.r * stats.r;
-    float a = var_I / (var_I + Epsilon);
-    float base_medium = lerp(stats.r, I, a);
+    // Each stats texture now holds the low-res guided-filter coefficients (a, b);
+    // bilinear sampling upsamples them and the base is just a * I + b.
+    float2 ab_medium = tex2D(sTexStatsMedium, input.uv).rg;
+    float base_medium = ab_medium.x * I + ab_medium.y;
 
-    // Micro scale base
-    float2 stats_micro = tex2D(sTexStatsMicro, input.uv).rg;
-    float var_micro = stats_micro.g - stats_micro.r * stats_micro.r;
-    float a_micro = var_micro / (var_micro + Epsilon);
-    float base_micro = lerp(stats_micro.r, I, a_micro);
+    float2 ab_micro = tex2D(sTexStatsMicro, input.uv).rg;
+    float base_micro = ab_micro.x * I + ab_micro.y;
 
-    // Macro scale base
-    float2 stats_macro = tex2D(sTexStatsMacro, input.uv).rg;
-    float var_macro = stats_macro.g - stats_macro.r * stats_macro.r;
-    float a_macro = var_macro / (var_macro + Epsilon);
-    float base_macro = lerp(stats_macro.r, I, a_macro);
+    float2 ab_macro = tex2D(sTexStatsMacro, input.uv).rg;
+    float base_macro = ab_macro.x * I + ab_macro.y;
 
     base_layers = float3(base_micro, base_medium, base_macro);
 }
@@ -1085,7 +1115,11 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     float dark_fade        = smoothstep(0.0, DarkFadeThreshold, scene_mean);
     float effective_strength = Strength * lerp(1.0, dark_fade, DynamicIntensity);
 
-    float3 blended = lerp(original, original * ratio, effective_strength);
+    // Soft-clip the boosted colour before blending so a saturated highlight that
+    // the ratio pushes past 1.0 desaturates cleanly instead of clipping one
+    // channel and shifting hue.
+    float3 boosted = GamutSoftClip(original * ratio);
+    float3 blended = lerp(original, boosted, effective_strength);
 
     float adp_luma    = GetLuminance(blended);
     float3 adp_chroma = blended - adp_luma;
@@ -1180,7 +1214,10 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // objects by slightly deepening pixels that sit on the shadow side of an edge.
     // hf_detail < 0 identifies pixels darker than their local base (shadow boundaries).
     // A 3.0 multiplier increases visibility, capping the raw mask at 0.40 prevents the line from dropping to pure black.
-    float contrast_shadow = min(saturate(-hf_detail * 3.0), 0.40) * Contrast_Shadow_Strength;
+    // Gating on the local base brightness keeps the halo next to genuinely bright
+    // neighbourhoods, so it stops darkening high-frequency noise in flat shadows.
+    float bright_neighbour = smoothstep(0.15, 0.5, Base);
+    float contrast_shadow = min(saturate(-hf_detail * 3.0), 0.40) * Contrast_Shadow_Strength * bright_neighbour;
 
     // Visualization block
     if (Debug_Mask)
@@ -1195,8 +1232,11 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 
     if (EnableDithering || Debug_Dithering)
     {
+        // Scroll the IGN pattern each frame so it reads as animated grain rather
+        // than a fixed screen-space texture stuck on top of smooth gradients.
         float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
-        dither = frac(magic.z * frac(dot(input.uv * bb::ScreenSize, magic.xy)));
+        float2 ign_pos = input.uv * bb::ScreenSize + 5.588238 * float(FrameCount % 64);
+        dither = frac(magic.z * frac(dot(ign_pos, magic.xy)));
     }
 
     float lum_dx = abs(ddx(GetLuminance(blended)));
@@ -1211,15 +1251,15 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     {
         float applied =
             banding_mask *
-            ((dither - 0.5) / 255.0);
+            ((dither - 0.5) / DitherSteps);
 
-        return saturate(applied.xxx * 255.0 + 0.5);
+        return saturate(applied.xxx * DitherSteps + 0.5);
     }
 
     [branch]
     if (EnableDithering)
     {
-        blended += banding_mask * ((dither - 0.5) / 255.0);
+        blended += banding_mask * ((dither - 0.5) / DitherSteps);
         blended = saturate(blended);
     }
 
