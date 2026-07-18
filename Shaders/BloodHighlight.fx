@@ -76,6 +76,18 @@ namespace dz_BloodHighlight
         ui_max      = 1.0;
     > = 0.40;
 
+    uniform float edgeSoftness <
+        ui_label    = "Edge Softness";
+        ui_tooltip  = "Width of the soft ramp on the saturation and highlight gates.\n"
+                      "Lower values give crisper, harder isolation edges.\n"
+                      "Higher values feather the transition so blood blends more\n"
+                      "gradually into the desaturated background.";
+        ui_category = "Blood Targeting";
+        ui_type     = "slider";
+        ui_min      = 0.01;
+        ui_max      = 0.30;
+    > = 0.10;
+
     uniform float backgroundColorStrength <
         ui_label    = "Background Color Strength";
         ui_tooltip  = "How much color is retained in non-blood areas.\n"
@@ -87,6 +99,29 @@ namespace dz_BloodHighlight
         ui_min      = 0.0;
         ui_max      = 1.0;
     > = 0.9;
+
+    uniform float backgroundBrightness <
+        ui_label    = "Background Brightness";
+        ui_tooltip  = "Dims the non-blood areas of the scene.\n"
+                      "1.0 = untouched. Lower values darken everything except blood,\n"
+                      "making blood read as brighter without touching its color.";
+        ui_category = "Scene";
+        ui_type     = "slider";
+        ui_min      = 0.2;
+        ui_max      = 1.0;
+    > = 1.0;
+
+    uniform float maskSmoothing <
+        ui_label    = "Mask Smoothing";
+        ui_tooltip  = "Blends the isolation mask with a small blur of itself to calm\n"
+                      "the shimmer that noisy or compressed red pixels cause in motion.\n"
+                      "0.0 = off (sharpest, per-pixel). Higher values are steadier but\n"
+                      "soften the blood edges slightly.";
+        ui_category = "Scene";
+        ui_type     = "slider";
+        ui_min      = 0.0;
+        ui_max      = 1.0;
+    > = 0.0;
 
     uniform float bloodColorIntensity <
         ui_label    = "Blood Color Intensity";
@@ -169,13 +204,12 @@ namespace dz_BloodHighlight
     }
 
 
-    float4 PS_BloodHighlight(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
+    // Isolation weight in [0, 1] for a single color: how strongly it reads as
+    // blood after the hue, saturation and brightness gates. Factored out so the
+    // pixel shader can evaluate it across a small neighborhood for smoothing.
+    float BloodMask(float3 color)
     {
-        float4 original  = tex2D(ReShade::BackBuffer, uv);
-        original.xyz     = saturate(original.xyz);
-
-        float luma       = computeLuminance(original.xyz);
-        float3 hsv       = rgbToHsv(original.xyz);
+        float3 hsv       = rgbToHsv(color);
         float hue        = hsv.x;
         float saturation = hsv.y;
         float brightness = hsv.z;
@@ -190,30 +224,57 @@ namespace dz_BloodHighlight
         hueDists.x = max(1.0 - abs((hue       - targetHue) * invHueWidth), 0.0);
         hueDists.y = max(1.0 - abs((hue + 1.0 - targetHue) * invHueWidth), 0.0);
         hueDists.z = max(1.0 - abs((hue - 1.0 - targetHue) * invHueWidth), 0.0);
-        float hueWeight = dot(hueDists, 1.0);
+        float hueWeight = dot(hueDists, float3(1.0, 1.0, 1.0));
 
-        // Saturation gate: soft ramp above the threshold.
-        float satWeight = smoothstep(bloodSatThreshold - 0.1, bloodSatThreshold, saturation);
+        // Saturation gate: soft ramp of width edgeSoftness below the threshold.
+        float satWeight = smoothstep(bloodSatThreshold - edgeSoftness, bloodSatThreshold, saturation);
 
         // Brightness gate: fade in above the shadow floor, fade out above the highlight ceiling.
         float valWeight = smoothstep(0.0, bloodShadowCutoff + 0.001, brightness)
-                * (1.0 - smoothstep(bloodHighlightCutoff, bloodHighlightCutoff + 0.1, brightness));
+                * (1.0 - smoothstep(bloodHighlightCutoff, bloodHighlightCutoff + edgeSoftness, brightness));
 
-        float isolationWeight = hueWeight * satWeight * valWeight;
-        float smoothWeight = quinticSmooth(isolationWeight);
+        return quinticSmooth(saturate(hueWeight * satWeight * valWeight));
+    }
+
+    float4 PS_BloodHighlight(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
+    {
+        float3 original = saturate(tex2D(ReShade::BackBuffer, uv).rgb);
+
+        float smoothWeight = BloodMask(original);
+
+        // Optionally calm per-pixel shimmer by blending toward a 3x3 average of
+        // the mask. The center color still drives the blood tint; only the mask
+        // weight is smoothed, so edges soften without bleeding color around.
+        [branch]
+        if (maskSmoothing > 0.0)
+        {
+            float blurred = 0.0;
+            [unroll]
+            for (int y = -1; y <= 1; y++)
+            [unroll]
+            for (int x = -1; x <= 1; x++)
+            {
+                float3 c = saturate(tex2D(ReShade::BackBuffer, uv + float2(x, y) * ReShade::PixelSize).rgb);
+                blurred += BloodMask(c);
+            }
+            blurred *= (1.0 / 9.0);
+            smoothWeight = lerp(smoothWeight, blurred, maskSmoothing);
+        }
 
         if (showDebugMask)
         {
             return float4(smoothWeight, smoothWeight, smoothWeight, 1.0);
         }
 
+        float luma        = computeLuminance(original);
         float3 grayscale  = float3(luma, luma, luma);
-        float3 background = lerp(grayscale, original.xyz, backgroundColorStrength);
+        float3 background = lerp(grayscale, original, backgroundColorStrength) * backgroundBrightness;
 
         // Scale the saturation boost by the isolation weight so that pixels at the
         // edge of the hue band get a proportional nudge rather than a full jump.
         // Without this, edge pixels lerp between background and a fully-boosted
         // blood color, which creates visible banding at the boundary.
+        float3 hsv         = rgbToHsv(original);
         float satBoost     = lerp(1.0, bloodColorIntensity, smoothWeight);
         float3 bloodHsv    = float3(hsv.x, saturate(hsv.y * satBoost), hsv.z);
         float3 bloodColor  = hsvToRgb(bloodHsv);
