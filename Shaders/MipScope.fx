@@ -210,13 +210,21 @@ float CalcLuminance(float3 c)
     return dot(c, float3(0.212656, 0.715158, 0.072186));
 }
 
+// Natural mip count of the full-resolution chain: floor(log2(longest axis)) + 1.
+// Derived from the real buffer size so the tool reports the true chain length
+// (e.g. 11 at 1080p, 12 at 1440p/4K) instead of assuming the declared maximum.
+int FullResMipCount()
+{
+    return int(floor(log2(float(max(BUFFER_WIDTH, BUFFER_HEIGHT))))) + 1;
+}
+
 // Number of mip levels (count, not max index) for the selected preset.
 // Max valid mip index = GetMipLevelCount() - 1.
 int GetMipLevelCount()
 {
     switch (TexturePreset)
     {
-        case 0:  return 12; // Full res
+        case 0:  return FullResMipCount(); // Full res (depends on resolution)
         case 1:  return 10; // 512x512
         case 2:  return 9;  // 256x256
         case 3:  return 8;  // 128x128
@@ -283,25 +291,41 @@ float DrawRectBorder(float2 uv, float2 lo, float2 hi, float thickness)
 
 // Luma write passes
 
+// Average four luma samples half a source texel apart - a proper 2:1 box
+// reduction. Point-sampling the full-res backbuffer straight into each smaller
+// texture would skip most source pixels and alias the whole chain, which would
+// misrepresent how a real downsampled luma texture actually looks.
+float BoxDownsample(sampler src, float2 uv, float2 srcTexel, float srcMip)
+{
+    float v = 0.0;
+    v += tex2Dlod(src, float4(uv + float2(-0.5, -0.5) * srcTexel, 0, srcMip)).r;
+    v += tex2Dlod(src, float4(uv + float2( 0.5, -0.5) * srcTexel, 0, srcMip)).r;
+    v += tex2Dlod(src, float4(uv + float2(-0.5,  0.5) * srcTexel, 0, srcMip)).r;
+    v += tex2Dlod(src, float4(uv + float2( 0.5,  0.5) * srcTexel, 0, srcMip)).r;
+    return v * 0.25;
+}
+
 void PS_WriteLumaFull(float4 pos : SV_Position, float2 uv : TEXCOORD, out float luma : SV_Target)
 {
     luma = CalcLuminance(tex2D(ReShade::BackBuffer, uv).rgb);
 }
 void PS_WriteLuma512(float4 pos : SV_Position, float2 uv : TEXCOORD, out float luma : SV_Target)
 {
-    luma = CalcLuminance(tex2D(ReShade::BackBuffer, uv).rgb);
+    // Pull from the full-res mip nearest 1024 so the box covers the full footprint.
+    const float srcMip = max(0.0, ceil(log2(max(BUFFER_WIDTH, BUFFER_HEIGHT) / 1024.0)));
+    luma = BoxDownsample(sLumaFull, uv, exp2(srcMip) * ReShade::PixelSize, srcMip);
 }
 void PS_WriteLuma256(float4 pos : SV_Position, float2 uv : TEXCOORD, out float luma : SV_Target)
 {
-    luma = CalcLuminance(tex2D(ReShade::BackBuffer, uv).rgb);
+    luma = BoxDownsample(sLuma512, uv, float2(1.0 / 512.0, 1.0 / 512.0), 0.0);
 }
 void PS_WriteLuma128(float4 pos : SV_Position, float2 uv : TEXCOORD, out float luma : SV_Target)
 {
-    luma = CalcLuminance(tex2D(ReShade::BackBuffer, uv).rgb);
+    luma = BoxDownsample(sLuma256, uv, float2(1.0 / 256.0, 1.0 / 256.0), 0.0);
 }
 void PS_WriteLuma64(float4 pos : SV_Position, float2 uv : TEXCOORD, out float luma : SV_Target)
 {
-    luma = CalcLuminance(tex2D(ReShade::BackBuffer, uv).rgb);
+    luma = BoxDownsample(sLuma128, uv, float2(1.0 / 128.0, 1.0 / 128.0), 0.0);
 }
 
 // Debug visualization pass
@@ -389,12 +413,17 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 
         if (ShowRegionOverlay)
         {
+            // Snap the box to the actual texel grid at this mip: work out the
+            // texture's size at the selected mip, find which texel SampleUV lands
+            // in, and outline exactly that texel's screen footprint. At the 1x1
+            // mip (or beyond) sizeAtMip collapses to 1 and the box covers the
+            // whole image, which is correct.
             float2 texSize   = GetTexSize();
-            float  scale     = pow(2.0, selectedMip);
-            float2 texelFrac = clamp(scale / texSize, 0.0, 1.0);
+            float2 sizeAtMip = max(floor(texSize / exp2(selectedMip)), 1.0);
+            float2 texelIdx  = clamp(floor(SampleUV * sizeAtMip), 0.0, sizeAtMip - 1.0);
 
-            float2 rMin = clamp(SampleUV - texelFrac * 0.5, 0.0, 1.0);
-            float2 rMax = clamp(SampleUV + texelFrac * 0.5, 0.0, 1.0);
+            float2 rMin = clamp(texelIdx        / sizeAtMip, 0.0, 1.0);
+            float2 rMax = clamp((texelIdx + 1.0) / sizeAtMip, 0.0, 1.0);
 
             float inRegion = step(rMin.x, uv.x) * step(uv.x, rMax.x)
                            * step(rMin.y, uv.y) * step(uv.y, rMax.y);
