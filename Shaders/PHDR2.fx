@@ -884,10 +884,18 @@ float SampleAvgLuma()
 // (a, b). Computing these at low resolution and letting the final pass bilinearly
 // upsample them is the fast guided filter - it avoids the edge halos that come
 // from deriving 'a' at full res out of already-interpolated moments.
-float2 MomentsToAB(float2 m)
+//
+// eps scales per scale: a self-guided filter with a fixed epsilon smooths LESS
+// as the window grows (a bigger window holds more variance, which pushes a -> 1
+// and the base back toward the input). Left unscaled, the large-radius macro
+// base ends up tracking the image more closely than the medium base, inverting
+// the coarse-to-fine order and flipping the sign of the macro contrast band.
+// Growing eps with the square of the radius ratio restores a proper pyramid
+// where each coarser base is genuinely smoother than the finer one.
+float2 MomentsToAB(float2 m, float eps)
 {
     float var = m.y - m.x * m.x;
-    float a   = var / (var + Epsilon);
+    float a   = var / (var + eps);
     return float2(a, m.x * (1.0 - a));
 }
 
@@ -921,7 +929,9 @@ void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 ab : SV_Target)
         float2 val = tex2Dlod(sTexTempMeansMedium, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
     }
-    ab = MomentsToAB(sum / (2 * taps + 1));
+    // Medium is the reference scale (ratio 1), so it uses Epsilon unchanged and
+    // the default all-sliders-zero output is preserved exactly.
+    ab = MomentsToAB(sum / (2 * taps + 1), Epsilon);
 }
 
 // ---- Micro Guided Scale Filters ----
@@ -954,7 +964,9 @@ void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 ab : SV_Target)
         float2 val = tex2Dlod(sTexTempMeansMicro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
     }
-    ab = MomentsToAB(sum / (2 * taps + 1));
+    // Finer than medium, so a smaller eps keeps the micro base close to the input.
+    float ratio = r / Radius;
+    ab = MomentsToAB(sum / (2 * taps + 1), Epsilon * ratio * ratio);
 }
 
 // ---- Macro Guided Scale Filters ----
@@ -987,7 +999,10 @@ void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 ab : SV_Target)
         float2 val = tex2Dlod(sTexTempMeansMacro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
         sum += val;
     }
-    ab = MomentsToAB(sum / (2 * taps + 1));
+    // Coarser than medium, so a larger eps forces the macro base to smooth out
+    // the medium-scale structure and become the true low-frequency layer.
+    float ratio = r / Radius;
+    ab = MomentsToAB(sum / (2 * taps + 1), Epsilon * ratio * ratio);
 }
 
 void PS_GuidedFilterResult(VS_OUTPUT input, out float3 base_layers : SV_Target)
