@@ -500,10 +500,16 @@ static const float DitherSteps = float((1 << BUFFER_COLOR_BIT_DEPTH) - 1);
 
 // Enough mip levels for the full-res luma chain to reach 1x1: a 4K buffer
 // needs 13 levels (0-12); 12 suffices up to 2048 pixels on the long axis.
-#if (BUFFER_WIDTH > 2048) || (BUFFER_HEIGHT > 2048)
+#if (BUFFER_WIDTH >= 4096) || (BUFFER_HEIGHT >= 4096)
     #define LUMA_FULLRES_MIPS 13
-#else
+#elif (BUFFER_WIDTH >= 2048) || (BUFFER_HEIGHT >= 2048)
     #define LUMA_FULLRES_MIPS 12
+#elif (BUFFER_WIDTH >= 1024) || (BUFFER_HEIGHT >= 1024)
+    #define LUMA_FULLRES_MIPS 11
+#elif (BUFFER_WIDTH >= 512) || (BUFFER_HEIGHT >= 512)
+    #define LUMA_FULLRES_MIPS 10
+#else
+    #define LUMA_FULLRES_MIPS 9
 #endif
 
 namespace DZPHDR
