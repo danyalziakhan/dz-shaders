@@ -100,7 +100,7 @@ uniform float DarkFadeThreshold <
     ui_tooltip = "Scene brightness below which the fade reaches full strength.\n"
                  "The effect ramps smoothly from black up to this value.\n"
                  "Only relevant when Dark Scene Fade is above 0.";
-> = 0.08;
+> = 0.05;
 
 uniform float Radius <
     ui_type = "slider";
@@ -147,7 +147,7 @@ uniform float Contrast_Shadow_Strength <
     ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright highlights. Higher values increase edge contrast.";
     ui_type = "drag";
     ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
-> = 0.25;
+> = 0.30;
 
 uniform bool EnableDithering <
     ui_label = "Enable Dithering";
@@ -193,7 +193,7 @@ uniform float AdaptMin <
     ui_tooltip = "Lower clamp on the measured scene brightness. Raising this stops a\n"
                  "near-black frame (e.g. a fade-out or a wall of shadow) from dragging\n"
                  "the exposure all the way to the floor and blowing out the next shot.";
-> = 0.02;
+> = 0.03;
 
 uniform float AdaptMax <
     ui_type = "slider";
@@ -204,7 +204,7 @@ uniform float AdaptMax <
     ui_tooltip = "Upper clamp on the measured scene brightness. Lowering this stops a\n"
                  "white flash (explosion, muzzle flare) from railing the exposure and\n"
                  "crushing the scene dark for a moment afterwards.";
-> = 0.9;
+> = 0.85;
 
 uniform float ManualExposure <
     ui_type = "slider";
@@ -423,7 +423,7 @@ uniform float TintThresholdS <
     ui_tooltip = "How much darker a pixel must be relative to the scene average to receive the cool tint.\n"
                  "1.0 = Triggers instantly on any value below average.\n"
                  "0.75 = Requires a pixel to drop at least 25% below the environment baseline.";
-> = 0.75;
+> = 0.70;
 
 uniform bool EnablePurkinje <
     ui_label = "Enable Purkinje Effect";
@@ -457,7 +457,7 @@ uniform float Purkinje_Fade_End <
     ui_category = "Adaptive Color Volume";
     ui_type = "slider";
     ui_min = 0.10; ui_max = 0.50; ui_step = 0.01;
-> = 0.30;
+> = 0.20;
 
 uniform float Purkinje_Fade_Start <
     ui_label = "Purkinje Fade-Out Start";
