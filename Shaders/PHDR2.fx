@@ -97,10 +97,12 @@ uniform float DarkFadeThreshold <
     ui_step = 0.005;
     ui_label = "Dark Scene Fade Threshold";
     ui_category = "General";
-    ui_tooltip = "Scene brightness below which the fade reaches full strength.\n"
-                 "The effect ramps smoothly from black up to this value.\n"
+    ui_tooltip = "Scene brightness at which the fade has fully released.\n"
+                 "The effect ramps smoothly from the Adaptation Floor up to this\n"
+                 "value, and the ramp is held to a minimum width so the transition\n"
+                 "always stays gradual rather than snapping on.\n"
                  "Only relevant when Dark Scene Fade is above 0.";
-> = 0.05;
+> = 0.15;
 
 uniform float Radius <
     ui_type = "slider";
@@ -271,6 +273,34 @@ uniform float TriggerRadius <
                  "Values beyond the preset's valid range are GPU-clamped to the\n"
                  "last valid level (same behavior as real adaptation shaders).";
 > = 8.0;
+
+// ---- Tonal Adaptation - Shared ----
+// The pivot that decides whether a scene is brightened or darkened. It governs
+// both the Brightening (Lift) and Darkening (Pull) groups below, so it lives in
+// its own category rather than inside either one.
+
+uniform float TonalNeutralPoint <
+    ui_type = "slider";
+    ui_min = 0.10; ui_max = 0.70;
+    ui_step = 0.01;
+    ui_label = "Tonal Neutral Point";
+    ui_category = "Tonal Adaptation";
+    ui_tooltip = "The scene brightness treated as 'average', where neither the Lift nor\n"
+                 "the Pull sliders do anything. Scenes measuring below it are handled by\n"
+                 "the Tonal Brightening (Lift) sliders, scenes above it by the Tonal\n"
+                 "Darkening (Pull) sliders. Governs both groups.\n\n"
+                 "How hard either group pushes depends on how far the scene sits from\n"
+                 "this point, measured over a fixed range that is the same above and\n"
+                 "below it. Moving the pivot away from your usual scene brightness\n"
+                 "therefore strengthens the response as well as choosing which group\n"
+                 "runs.\n\n"
+                 "Direction comes from the sliders alone - they brighten above 1.0 and\n"
+                 "darken below it. Raise the pivot with Lift set under 1.0 and a dark\n"
+                 "scene gets darker, not brighter.\n\n"
+                 "Scene brightness is a geometric mean in gamma space, which typically\n"
+                 "reads well below 0.5 even in bright outdoor scenes, so the pivot sits\n"
+                 "at 0.30 to keep the Pull sliders reachable.";
+> = 0.30;
 
 // ---- Tonal Adaptation - Brightening ----
 // All three sliders share the same scale. Default 1.0 = neutral (no tonal delta,
@@ -691,9 +721,12 @@ namespace DZPHDR
         Texture = TexVarI;
     };
 
+    // .r = the value the shader uses (perceptual, asymmetric filter)
+    // .g = a short symmetric pre-filter of the raw measurement, used only to feed
+    //      the asymmetric stage a flicker-free signal.
     texture TexAdapt
     {
-        Format = R32F;
+        Format = RG32F;
         Width  = 1;
         Height = 1;
     };
@@ -708,7 +741,7 @@ namespace DZPHDR
 
     texture TexLastAdapt
     {
-        Format = R32F;
+        Format = RG32F;
         Width  = 1;
         Height = 1;
     };
@@ -784,6 +817,22 @@ float AdaptionDelta(float luma, float strengthMidtones, float strengthShadows, f
     float shadows    = strengthShadows    * (1.0 - luma);
     float highlights = strengthHighlights * luma;
     return midtones + shadows + highlights;
+}
+
+// Biggest curve weight that still leaves luma -> luma + delta rising everywhere.
+// Opposed slider settings (crushed highlights against lifted shadows) can tilt
+// the delta steeply enough to invert the tone order, so darker pixels come out
+// brighter than lighter ones. Differentiating AdaptionDelta gives a slope of
+// A * (1 - 2 * luma) + (hi - sh) with A = 4 * mid - hi - sh, which bottoms out at
+// (hi - sh) - |A| when the delta is added and at -((hi - sh) + |A|) when it is
+// subtracted. Hold weight * that slope at -1 or above and the curve can flatten
+// but never fold back on itself.
+float MonotonicCurveLimit(float strengthMidtones, float strengthShadows, float strengthHighlights, bool subtracted)
+{
+    float A     = 4.0 * strengthMidtones - strengthHighlights - strengthShadows;
+    float slope = subtracted ? -((strengthHighlights - strengthShadows) + abs(A))
+                             :  ((strengthHighlights - strengthShadows) - abs(A));
+    return (slope < 0.0) ? (-1.0 / slope) : 1e6;
 }
 
 // Roll a colour whose brightest channel exceeds a soft knee back down to 1.0 by
@@ -1029,13 +1078,22 @@ void PS_GuidedFilterResult(VS_OUTPUT input, out float3 base_layers : SV_Target)
     base_layers = float3(base_micro, base_medium, base_macro);
 }
 
-void PS_CalcAdapt(VS_OUTPUT input, out float adapt : SV_Target)
+// Pre-filter length. Long enough to swallow a flickering torch or fire, short
+// enough that it costs about a sixth of a second on a real transition.
+static const float FlickerRejectTime = 0.15;
+
+// How far a scene has to sit from the neutral point before the Lift or Pull
+// sliders reach full travel. Same distance on both sides and at any pivot.
+static const float TonalResponseRange = 0.35;
+
+void PS_CalcAdapt(VS_OUTPUT input, out float2 adapt : SV_Target)
 {
     // Clamp the raw measurement so a fade-to-black or a white flash can't rail
     // the adaptation and slam the tonal curves on the next frame.
     float adaptCeil = max(AdaptMax, AdaptMin + 0.01);
-    float current   = clamp(SampleAvgLuma(), AdaptMin, adaptCeil);
-    float last      = tex2Dfetch(sTexLastAdapt, 0).r;
+    float measured  = clamp(SampleAvgLuma(), AdaptMin, adaptCeil);
+    float2 last     = tex2Dfetch(sTexLastAdapt, 0).rg;
+    float dt        = FrameTime * 0.001;
 
     float4 prevParams = tex2Dfetch(sTexLastParams, 0);
     float4 currParams = float4(float(LumaTextureSize), TriggerRadius, 0.5, 0.5);
@@ -1043,19 +1101,25 @@ void PS_CalcAdapt(VS_OUTPUT input, out float adapt : SV_Target)
 
     if (paramChanged || AdaptationTime <= 0.0)
     {
-        adapt = current;
+        adapt = max(measured, 1e-5).xx;
+        return;
     }
-    else
-    {
-        // Asymmetric time constant: brightening (current > last) uses the base
-        // time; darkening eases in more slowly, matching how real eyes recover
-        // fast to light but dark-adapt gradually. Continuous exponential decay
-        // keeps the speed frame-rate independent.
-        float tau = AdaptationTime * ((current < last) ? DarkAdaptationMult : 1.0);
-        float smoothFactor = 1.0 - exp(-(FrameTime * 0.001) / max(tau, 0.001));
-        adapt = lerp(last, current, smoothFactor);
-    }
-    adapt = max(adapt, 1e-5);
+
+    // Stage 1 is symmetric, so it settles on the true mean. Feeding the stage
+    // below a clean signal matters: a fast-up/slow-down filter run straight off a
+    // flickering measurement creeps upward, about 10% high next to a campfire.
+    float fast = lerp(last.g, measured, 1.0 - exp(-dt / FlickerRejectTime));
+
+    // Stage 2 is the eye model - quick to brighten, slow to dark-adapt. Direction
+    // fades across a relative deadband instead of a hard test, otherwise noise
+    // around the crossing point flips the time constant every frame. Exponential
+    // decay keeps the rate independent of frame rate.
+    float deadband = max(0.25 * last.r, 1e-4);
+    float rising   = smoothstep(-deadband, deadband, fast - last.r);
+    float tau      = AdaptationTime * lerp(DarkAdaptationMult, 1.0, rising);
+    float slow     = lerp(last.r, fast, 1.0 - exp(-dt / max(tau, 0.001)));
+
+    adapt = float2(max(slow, 1e-5), max(fast, 1e-5));
 }
 
 void PS_SaveParams(VS_OUTPUT input, out float4 save : SV_Target)
@@ -1063,9 +1127,9 @@ void PS_SaveParams(VS_OUTPUT input, out float4 save : SV_Target)
     save = float4(float(LumaTextureSize), TriggerRadius, 0.5, 0.5);
 }
 
-void PS_SaveAdapt(VS_OUTPUT input, out float save : SV_Target)
+void PS_SaveAdapt(VS_OUTPUT input, out float2 save : SV_Target)
 {
-    save = tex2Dfetch(sTexAdapt, 0).r;
+    save = tex2Dfetch(sTexAdapt, 0).rg;
 }
 
 float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
@@ -1133,7 +1197,13 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // log-ratio has almost no real range to recover and mostly amplifies
     // compression noise. dark_fade is 1 above the threshold, easing to 0 at
     // black; DynamicIntensity picks how much of that fade actually applies.
-    float dark_fade        = smoothstep(0.0, DarkFadeThreshold, scene_mean);
+    // Ramp from the darkest brightness the adaptation can report rather than from
+    // black, otherwise the floor clips the bottom off it and the fade never quite
+    // arrives. The minimum width stops a low threshold sitting near the floor from
+    // squeezing the whole ramp into a couple of hundredths and turning it into a step.
+    float fade_lo   = EnableAdaptation ? AdaptMin : 0.0;
+    float fade_hi   = max(DarkFadeThreshold, fade_lo + 0.10);
+    float dark_fade = smoothstep(fade_lo, fade_hi, scene_mean);
     float effective_strength = Strength * lerp(1.0, dark_fade, DynamicIntensity);
 
     // Soft-clip the boosted colour before blending so a saturated highlight that
@@ -1149,26 +1219,32 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // Use 1.0 strength for static manual exposure, otherwise use the slider
     float current_strength = EnableAdaptation ? AdaptationStrength : 1.0;
 
+    // Split point between brightening and darkening. Distance from it is measured
+    // in plain brightness against a fixed range, not as a fraction of the space
+    // left on either side. That keeps the ramp the same width above and below the
+    // pivot and at every pivot setting, so moving the neutral point slides the
+    // response along rather than stretching it, and a Lift of 1.2 a tenth below
+    // neutral answers a Pull of 1.2 a tenth above it. smoothstep is flat at the
+    // pivot and flat again at full travel, so settled scenes hold steady and
+    // nothing kicks as the scene drifts across neutral.
+    float pivot = clamp(TonalNeutralPoint, 0.05, 0.95);
+
     // sm_adapt defaults to ManualExposure when adaptation is disabled
-    if (sm_adapt < 0.5)
+    if (sm_adapt < pivot)
     {
-        float curve = current_strength * 10.0 * pow(0.5 - sm_adapt, 4.0);
-        adp_delta = AdaptionDelta(
-            adp_luma,
-            LiftMidtones   - 1.0,
-            LiftShadows    - 1.0,
-            LiftHighlights - 1.0
-        ) * curve;
+        float mid = LiftMidtones - 1.0, sh = LiftShadows - 1.0, hi = LiftHighlights - 1.0;
+        float t     = saturate((pivot - sm_adapt) / TonalResponseRange);
+        float curve = current_strength * 0.5 * (t * t * (3.0 - 2.0 * t));
+        curve = min(curve, MonotonicCurveLimit(mid, sh, hi, false));
+        adp_delta = AdaptionDelta(adp_luma, mid, sh, hi) * curve;
     }
     else
     {
-        float curve = current_strength * (sm_adapt - 0.5);
-        adp_delta = -AdaptionDelta(
-            adp_luma,
-            PullMidtones   - 1.0,
-            PullShadows    - 1.0,
-            PullHighlights - 1.0
-        ) * curve;
+        float mid = PullMidtones - 1.0, sh = PullShadows - 1.0, hi = PullHighlights - 1.0;
+        float u     = saturate((sm_adapt - pivot) / TonalResponseRange);
+        float curve = current_strength * 0.5 * (u * u * (3.0 - 2.0 * u));
+        curve = min(curve, MonotonicCurveLimit(mid, sh, hi, true));
+        adp_delta = -AdaptionDelta(adp_luma, mid, sh, hi) * curve;
     }
 
     adp_luma = saturate(adp_luma + adp_delta);
@@ -1256,7 +1332,7 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         // Scroll the IGN pattern each frame so it reads as animated grain rather
         // than a fixed screen-space texture stuck on top of smooth gradients.
         float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
-        float2 ign_pos = input.uv * bb::ScreenSize + 5.588238 * float(FrameCount % 64);
+        float2 ign_pos = input.uv * bb::ScreenSize + 5.588238 * float(uint(FrameCount) % 64u);
         dither = frac(magic.z * frac(dot(ign_pos, magic.xy)));
     }
 
