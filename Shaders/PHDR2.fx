@@ -1201,7 +1201,11 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // black, otherwise the floor clips the bottom off it and the fade never quite
     // arrives. The minimum width stops a low threshold sitting near the floor from
     // squeezing the whole ramp into a couple of hundredths and turning it into a step.
-    float fade_lo   = EnableAdaptation ? AdaptMin : 0.0;
+    // scene_mean is clamped to a 0.01 floor above, so the ramp has to start at or
+    // above that floor: anchoring it lower (a sub-0.01 Adaptation Floor, or 0.0 in
+    // manual mode) leaves a slice of the ramp that scene_mean can never reach and
+    // the fade bottoms out at a few percent instead of fully releasing.
+    float fade_lo   = EnableAdaptation ? max(AdaptMin, 0.01) : 0.01;
     float fade_hi   = max(DarkFadeThreshold, fade_lo + 0.10);
     float dark_fade = smoothstep(fade_lo, fade_hi, scene_mean);
     float effective_strength = Strength * lerp(1.0, dark_fade, DynamicIntensity);
@@ -1279,12 +1283,16 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
 
     [branch]
-    if (EnableSplitToning && (!ScaleTintsWithIntensity || Strength > 0.0))
+    if (EnableSplitToning && (!ScaleTintsWithIntensity || effective_strength > 0.0))
     {
         float local_luma     = GetLuminance(blended);
         float contrast_ratio = local_luma / (scene_mean + 0.0001);
 
-        float strength_weight         = ScaleTintsWithIntensity ? pow(Strength, 0.75) : 1.0;
+        // Track effective_strength rather than the raw slider, so the tints back off
+        // with the Dark Scene Fade instead of holding full opacity over a scene the
+        // tone fusion has already released. The highlight weight is 1.0 in dark
+        // scenes, so without this the highlight tint keeps shifting colour there.
+        float strength_weight         = ScaleTintsWithIntensity ? pow(effective_strength, 0.75) : 1.0;
         float scene_shadow_weight     = smoothstep(0.0, 0.3, scene_mean);
         float scene_highlight_weight  = smoothstep(1.0, 0.7, scene_mean);
 
