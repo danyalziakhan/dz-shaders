@@ -138,18 +138,29 @@ uniform float Contrast_Medium <
 uniform float Contrast_Macro <
     ui_label = "Macro Contrast Boost";
     ui_category = "General";
-    ui_tooltip = "Amplifies or suppresses large-scale depth contrast.";
+    ui_tooltip = "Adds large-scale depth contrast back into the image.\n\n"
+                 "Unlike the Micro and Medium sliders this one starts at 0 rather\n"
+                 "than centring there. The tone mapping already divides the coarse\n"
+                 "structure out, so 0 is the flat end of the range and raising the\n"
+                 "slider restores large-scale depth. There is nothing below 0 to\n"
+                 "suppress: negative gain would invert the macro band instead of\n"
+                 "flattening it, swapping which side of a large edge reads brighter.";
     ui_type = "slider";
-    ui_min = -1.0; ui_max = 1.0; ui_step = 0.01;
+    ui_min = 0.0; ui_max = 1.0; ui_step = 0.01;
 > = 0.0;
 
 uniform float Contrast_Shadow_Strength <
     ui_label = "Contrast Shadow Strength";
     ui_category = "General";
-    ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright highlights. Higher values increase edge contrast.";
+    ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright\n"
+                 "highlights. Higher values increase edge contrast.\n\n"
+                 "Read as a fraction of INTENSITY, so the halo fades out with the\n"
+                 "main effect and with the Dark Scene Fade. A preset saved before\n"
+                 "this changed will draw a weaker halo; divide the old value by\n"
+                 "INTENSITY to get the equivalent setting.";
     ui_type = "drag";
-    ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
-> = 0.30;
+    ui_min = 0.0; ui_max = 2.0; ui_step = 0.001;
+> = 1.0;
 
 uniform bool EnableDithering <
     ui_label = "Enable Dithering";
@@ -634,11 +645,15 @@ namespace DZPHDR
     };
 
     // Medium scale (Base) filter maps
+    // The vertical passes read these with the same strided taps the horizontal ones
+    // use, so they need a mip chain to prefilter from. Six levels covers the widest
+    // stride any scale can ask for (macro at maximum Radius) with room to spare.
     texture TexTempMeansMedium
     {
-        Width  = GW;
-        Height = GH;
-        Format = RG16F;
+        Width     = GW;
+        Height    = GH;
+        Format    = RG16F;
+        MipLevels = 6;
     };
 
     sampler sTexTempMeansMedium
@@ -661,9 +676,10 @@ namespace DZPHDR
     // Micro scale filter maps
     texture TexTempMeansMicro
     {
-        Width  = GW;
-        Height = GH;
-        Format = RG16F;
+        Width     = GW;
+        Height    = GH;
+        Format    = RG16F;
+        MipLevels = 6;
     };
 
     sampler sTexTempMeansMicro
@@ -686,9 +702,10 @@ namespace DZPHDR
     // Macro scale filter maps
     texture TexTempMeansMacro
     {
-        Width  = GW;
-        Height = GH;
-        Format = RG16F;
+        Width     = GW;
+        Height    = GH;
+        Format    = RG16F;
+        MipLevels = 6;
     };
 
     sampler sTexTempMeansMacro
@@ -957,16 +974,33 @@ float2 MomentsToAB(float2 m, float eps)
 // ---- Standard (Medium) Guided Scale Filters ----
 // Integer tap counts keep the window exactly symmetric; a float accumulator
 // (x += step) can drop the +r endpoint to rounding error and bias the mean.
+//
+// stepSize = r / 3 pins every scale to 7 taps regardless of radius, so a wide
+// window is covered by taps that stand tens of pixels apart. Read at LOD 0 those
+// are point samples with holes between them: fine detail folds into both moments,
+// the variance drives 'a' off the aliased value, and the base shimmers as content
+// drifts through the sampling comb. Reading each tap from the mip whose footprint
+// matches its own stride turns it into the average of the pixels it stands for.
+// This also measures each scale's variance at that scale rather than letting pixel
+// detail leak into the coarse windows, which reinforces the coarse-to-fine
+// ordering that MomentsToAB's epsilon scaling is there to protect.
+float MipForStride(float stepSize)
+{
+    return max(0.0, log2(stepSize));
+}
+
 void PS_CalcMeansH_Medium(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
     float stepSize = max(1.0, Radius / 3.0);
     int taps = int(Radius / stepSize + 1e-3);
+    // Sampling TexLuma, which is full resolution, so the stride is already in texels.
+    float lod = MipForStride(stepSize);
     float2 sum = 0.0;
 
     for (int i = -taps; i <= taps; i++)
     {
-        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, 0)).r;
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, lod)).r;
         sum += float2(val, val * val);
     }
     mean_horiz = sum / (2 * taps + 1);
@@ -977,11 +1011,14 @@ void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 ab : SV_Target)
     float2 ps = bb::PixelSize;
     float stepSize = max(1.0, Radius / 3.0);
     int taps = int(Radius / stepSize + 1e-3);
+    // The offsets are in full-res pixels but the moments texture is 1/SCALE that
+    // size, so the stride is that many fewer texels and the matching mip is lower.
+    float lod = MipForStride(stepSize / float(SCALE));
     float2 sum = 0.0;
 
     for (int i = -taps; i <= taps; i++)
     {
-        float2 val = tex2Dlod(sTexTempMeansMedium, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
+        float2 val = tex2Dlod(sTexTempMeansMedium, float4(input.uv + float2(0, i * stepSize * ps.y), 0, lod)).rg;
         sum += val;
     }
     // Medium is the reference scale (ratio 1), so it uses Epsilon unchanged and
@@ -996,11 +1033,12 @@ void PS_CalcMeansH_Micro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
     float r = max(1.0, Radius / 3.0);
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
+    float lod = MipForStride(stepSize);
     float2 sum = 0.0;
 
     for (int i = -taps; i <= taps; i++)
     {
-        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, 0)).r;
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, lod)).r;
         sum += float2(val, val * val);
     }
     mean_horiz = sum / (2 * taps + 1);
@@ -1012,11 +1050,12 @@ void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 ab : SV_Target)
     float r = max(1.0, Radius / 3.0);
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
+    float lod = MipForStride(stepSize / float(SCALE));
     float2 sum = 0.0;
 
     for (int i = -taps; i <= taps; i++)
     {
-        float2 val = tex2Dlod(sTexTempMeansMicro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
+        float2 val = tex2Dlod(sTexTempMeansMicro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, lod)).rg;
         sum += val;
     }
     // Finer than medium, so a smaller eps keeps the micro base close to the input.
@@ -1031,11 +1070,13 @@ void PS_CalcMeansH_Macro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
     float r = min(90.0, Radius * 3.0);
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
+    // Widest stride of the three scales, so this is where LOD 0 aliased worst.
+    float lod = MipForStride(stepSize);
     float2 sum = 0.0;
 
     for (int i = -taps; i <= taps; i++)
     {
-        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, 0)).r;
+        float val = tex2Dlod(sTexLuma, float4(input.uv + float2(i * stepSize * ps.x, 0), 0, lod)).r;
         sum += float2(val, val * val);
     }
     mean_horiz = sum / (2 * taps + 1);
@@ -1047,11 +1088,12 @@ void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 ab : SV_Target)
     float r = min(90.0, Radius * 3.0);
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
+    float lod = MipForStride(stepSize / float(SCALE));
     float2 sum = 0.0;
 
     for (int i = -taps; i <= taps; i++)
     {
-        float2 val = tex2Dlod(sTexTempMeansMacro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, 0)).rg;
+        float2 val = tex2Dlod(sTexTempMeansMacro, float4(input.uv + float2(0, i * stepSize * ps.y), 0, lod)).rg;
         sum += val;
     }
     // Coarser than medium, so a larger eps forces the macro base to smooth out
@@ -1151,9 +1193,18 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     float band_medium = log(Bases.x) - log(Bases.y);
     float band_macro  = log(Bases.y) - log(Bases.z);
 
+    // Macro is a bare gain rather than 1 + slider like the two finer bands, because
+    // the medium base already divides the coarse structure out of the default
+    // reconstruction: the macro band starts absent and the slider adds it back. That
+    // makes 0 the flat end of the range, not its centre, so the gain is held at or
+    // above 0 here as well as in the UI bound. A negative gain would not flatten the
+    // band further, it would subtract past flat and invert it, darkening whichever
+    // side of a large-scale edge is meant to read brighter.
+    float macro_gain = max(Contrast_Macro, 0.0);
+
     float R_val = band_micro  * (1.0 + Contrast_Micro)
                 + band_medium * (1.0 + Contrast_Medium)
-                + band_macro  * Contrast_Macro;
+                + band_macro  * macro_gain;
 
     // High-frequency reflectance detail used later for contrast masking
     float hf_detail  = L - Base;
@@ -1321,8 +1372,12 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // A 3.0 multiplier increases visibility, capping the raw mask at 0.40 prevents the line from dropping to pure black.
     // Gating on the local base brightness keeps the halo next to genuinely bright
     // neighbourhoods, so it stops darkening high-frequency noise in flat shadows.
+    // Scaled by effective_strength for the same reason the tints are: the halo is
+    // derived from hf_detail, and in a dark scene that detail is mostly compression
+    // noise, which is exactly what the Dark Scene Fade exists to stop amplifying.
+    // It also means INTENSITY 0 is a genuine no-op instead of still drawing edges.
     float bright_neighbour = smoothstep(0.15, 0.5, Base);
-    float contrast_shadow = min(saturate(-hf_detail * 3.0), 0.40) * Contrast_Shadow_Strength * bright_neighbour;
+    float contrast_shadow = min(saturate(-hf_detail * 3.0), 0.40) * Contrast_Shadow_Strength * bright_neighbour * effective_strength;
 
     // Visualization block
     if (Debug_Mask)
