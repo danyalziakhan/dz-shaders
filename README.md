@@ -12,9 +12,9 @@ All shaders require ReShade 6.x unless stated otherwise.
 
 A debug and visualization shader for inspecting mipmapped luminance textures.
 
-Many eye adaptation and auto-exposure shaders estimate scene brightness by sampling high mip levels of a luminance texture. The selected mip level has a significant impact on the result, but it can be difficult to visualize what each mip actually contains or how much image detail remains at a given level.
+Many eye adaptation and auto-exposure shaders estimate scene brightness by sampling high mip levels of a luminance texture. The mip you pick changes the result a lot, but it's hard to see what any given level actually contains or how much detail survives there.
 
-MipScope maintains five luminance textures at different resolutions (full resolution, 512×512, 256×256, 128×128, and 64×64), each with a complete mip chain. The smaller textures are built by box-downsampling the chain rather than point-sampling the screen, so they represent what a real downsampled luma texture looks like instead of an aliased subsample. The full-resolution chain length is derived from your actual screen size, so the tool reports the true number of mip levels (for example 11 at 1080p, 12 at 1440p and 4K). You can switch between textures, inspect individual mip levels, and visualize how sampling behavior changes across the chain.
+MipScope keeps five luminance textures at different resolutions (full res, 512×512, 256×256, 128×128, 64×64), each with a full mip chain. The smaller ones are built by box-downsampling the chain rather than point-sampling the screen, so they show what a real downsampled luma texture looks like instead of an aliased subsample. The full-res chain length comes from your actual screen size, so the tool reports the true mip count — 11 at 1080p, 12 at 1440p and 4K. You can switch textures, step through levels, and watch how sampling behaviour changes across the chain.
 
 **Requires:** `ReShade.fxh` only. No additional shader packs needed.
 
@@ -22,25 +22,23 @@ MipScope maintains five luminance textures at different resolutions (full resolu
 
 **Mode 0: Fullscreen Mip View**
 
-Stretches the selected mip level to fill the screen. Useful for determining how much detail remains at a given mip level and whether features such as letterbox bars, a dark sidebar, or a bright corner are still affecting the sampled result.
+Stretches the selected mip to fill the screen. Useful for judging how much detail is left at a given level, and whether letterbox bars, a dark sidebar or a bright corner are still affecting the sampled result.
 
 **Mode 1: Mip Chain Grid**
 
-Shows all mip levels at once in a 4-column grid, starting from mip 0. The selected mip level gets a blue tint so you can see exactly which cell you're looking at. If you set a mip level that's beyond what the texture actually has, the last valid cell gets highlighted instead because that's what the GPU is actually reading when you ask for something that doesn't exist.
+Shows every mip at once in a 4-column grid starting from mip 0. The selected one gets a blue tint so you can tell which cell you're looking at. Ask for a level the texture doesn't have and the last valid cell highlights instead, because that's what the GPU is really reading.
 
 **Mode 2: Sample Region Overlay**
 
-Shows the scene in grayscale with a yellow rectangle marking the screen region that the sampled texel covers. The box snaps to the actual texel grid at the selected mip: it finds which texel your Sample UV falls into and outlines exactly that texel's footprint, so the overlay lines up with real texel boundaries rather than just being centered on the cursor.
+Shows the scene in grayscale with a yellow rectangle marking the screen region the sampled texel covers. The box snaps to the real texel grid at the selected mip — it finds which texel your Sample UV lands in and outlines that texel's footprint, so the overlay sits on actual texel boundaries rather than just centring on the cursor.
 
-The last valid mip level of any texture is always 1 pixel by 1 pixel, so that single sample represents your entire image. If you ask for a mip beyond that, the GPU clamps it there anyway, so the region stays at 100%. This is the correct behavior, it's exactly what happens in a real adaptation shader that over-requests mip levels. (Texel sizes are computed from standard box-filter dimensions, so on non-power-of-two textures the driver's exact footprint might differ by a fraction of a texel, but it's close.)
+The last valid mip of any texture is 1×1, so that single sample represents the whole image. Ask for anything beyond it and the GPU clamps there anyway, so the region stays at 100%. That's correct — it's exactly what a real adaptation shader does when it over-requests. (Texel sizes come from standard box-filter dimensions, so on non-power-of-two textures the driver's footprint may differ by a fraction of a texel, but it's close.)
 
 **Mode 3: Luminance Heatmap**
 
-Maps luminance values to a false-color gradient. Rainbow goes from blue (dark) through green to red (bright). Grayscale is a plain black-to-white ramp, which can be easier to read when you're comparing mip levels side by side.
+Maps luminance to false colour. Rainbow runs blue (dark) through green to red (bright). Grayscale is a plain black-to-white ramp, which is often easier to read when comparing levels side by side.
 
 #### Settings
-
-These control what you see and how you navigate the visualization:
 
 | Setting | What it does |
 |---|---|
@@ -56,9 +54,9 @@ These control what you see and how you navigate the visualization:
 
 #### Understanding the mip chain
 
-When you declare `MipLevels = N` in a ReShade texture, you get N levels, indexed 0 through N-1. The last one is always 1 pixel by 1 pixel, a single value that represents your entire image. That's where most adaptation shaders read from when they want a global average.
+Declaring `MipLevels = N` in a ReShade texture gives you N levels, indexed 0 through N-1. The last is always 1×1 — one value standing for the entire image, and where most adaptation shaders read their global average.
 
-If you ask the GPU to sample a mip index that doesn't exist, it just clamps to the last valid level. So a shader that declares `MipLevels = 8` and samples mip 8 is actually reading mip 7, the same 1 pixel by 1 pixel value it would get at index 7. The mip slider intentionally allows values beyond the valid chain so clamping behavior can be observed directly.
+Sample a mip index that doesn't exist and the GPU clamps to the last valid one. A shader declaring `MipLevels = 8` and sampling mip 8 is really reading mip 7. The mip slider deliberately allows out-of-range values so you can watch that clamping happen.
 
 For reference, here's how many mip levels each preset naturally has:
 
@@ -77,9 +75,9 @@ For reference, here's how many mip levels each preset naturally has:
 
 **File:** `Shaders/BloodHighlight.fx`
 
-Isolates blood-colored pixels and subtly desaturates the rest of the scene to make blood more visually prominent. Blood tones are kept at or near their original saturation while everything else is pushed toward grayscale by an adjustable amount.
+Isolates blood-colored pixels and subtly desaturates the rest of the scene to make blood more visually prominent. Blood tones keep their original saturation while everything else is pushed toward grayscale by an adjustable amount.
 
-The shader applies three stacked filters: a hue gate centered on your selected blood tone, a saturation gate to exclude dull or muted reds, and a brightness gate to exclude very dark shadows and bright highlights. Anything that passes all three is treated as blood; everything else is softly blended toward grayscale.
+Three stacked filters do the work: a hue gate centred on your chosen blood tone, a saturation gate to drop dull or muted reds, and a brightness gate to drop very dark shadows and bright highlights. Whatever passes all three counts as blood; the rest blends softly toward grayscale.
 
 Designed and tuned for Mortal Kombat 1. Should work for any game that uses realistic blood tones.
 
@@ -108,49 +106,49 @@ The defaults are calibrated for Mortal Kombat 1. For other games:
 1. Find a scene with blood clearly visible on a neutral surface — floor, concrete, or bare skin work well.
 2. **Blood Tone** — if blood looks distinctly orange-red (dried, older games) nudge right. If it looks dark crimson or pooled, nudge left. Leave at center for standard bright red.
 3. **Detection Range** — this is the most important slider for coverage. If only a thin slice of blood is lighting up and neighboring pixels are not catching, raise it. If non-blood reds start triggering, lower it slightly. The default (0.08, ~29 degrees) covers most realistic blood palettes.
-3. **Shadow Cutoff** — lower slightly if blood pooling in dark shadows is not being picked up. The default (0.01) is already very permissive.
-4. **Highlight Cutoff** — lower if fire, UI elements, or environmental reds are bleeding into the effect. Raise if blood on bright surfaces (white fabric, lit floors) is getting cut out.
-5. **Blood Saturation Threshold** — raise if non-blood reds like rust, worn cloth, or red armor are being highlighted. Lower if blood looks faded or is only partially colored.
-6. **Background Color Strength** — adjust to taste. Lower values increase the contrast between blood and everything else at the cost of a more stylized look.
-7. **Blood Color Intensity** — leave at 1.0 unless you want to soften the effect and blend blood partway back toward the desaturated background.
+4. **Shadow Cutoff** — lower slightly if blood pooling in dark shadows is not being picked up. The default (0.01) is already very permissive.
+5. **Highlight Cutoff** — lower if fire, UI elements, or environmental reds are bleeding into the effect. Raise if blood on bright surfaces (white fabric, lit floors) is getting cut out.
+6. **Blood Saturation Threshold** — raise if non-blood reds like rust, worn cloth, or red armor are being highlighted. Lower if blood looks faded or is only partially colored.
+7. **Background Color Strength** — adjust to taste. Lower values increase the contrast between blood and everything else at the cost of a more stylized look.
+8. **Blood Color Intensity** — leave at 1.0 unless you want to soften the effect and blend blood partway back toward the desaturated background.
 
 ---
 
-### PHDR2
+### PHDR Plus
 
-**File:** `Shaders/PHDR2.fx`
+**File:** `Shaders/PHDRPlus.fx`
 
-A perceptual HDR shader that attempts to restore depth and dynamic range on standard LDR monitors. It's not true HDR - it works by analyzing per-pixel luminance, computing a scene average through eye adaptation, and applying a multi-exposure tone fusion across virtual illumination samples to lift shadow detail and recover highlight structure simultaneously.
+A perceptual HDR shader that tries to restore depth and dynamic range on an ordinary LDR monitor. It isn't true HDR — it reads per-pixel luminance, computes a scene average through eye adaptation, then fuses several virtual exposures to lift shadow detail and recover highlight structure at once.
 
-The core technique comes from BarbatosBachiko's PHDR shader, which combines Weighted Least Squares smoothing for base layer extraction, Selective Reflectance Scaling to selectively amplify the log-luminance ratio for pixels above the scene mean, Virtual Illumination Generation across five virtual exposure points, and a weighted fusion of those samples back into a single output. The result is a frame that reads as having more perceived depth than the input without obvious tone mapping artifacts.
+The core technique comes from BarbatosBachiko's PHDR: Weighted Least Squares smoothing for base layer extraction, Selective Reflectance Scaling to amplify the log-luminance ratio for pixels above the scene mean, Virtual Illumination Generation across five exposure points, and a weighted fusion back into one output. The result reads as having more depth than the input without obvious tone mapping artifacts.
 
-PHDR2 adds nine things on top of that foundation.
+PHDR Plus adds nine things on top of that foundation.
 
-The first is per-zone tonal adaptation. The original PHDR applies no per-pixel brightening or darkening beyond the base fusion - the exposure logic only feeds the brightness level into the tone mapping calculation. PHDR2 exposes six Lift and Pull sliders that let you independently control how aggressively the shader brightens highlights, midtones, and shadows in dark scenes, and suppresses them in bright scenes. These controls function seamlessly whether dynamic eye adaptation is enabled or manual exposure is used. All six sliders default to 1.0, which is neutral and identical to the original PHDR output. Push above 1.0 to amplify the response in that zone, or pull below 1.0 to suppress it. The formula uses the standard 4.0 midtone coefficient so all three zones respond proportionally to the same slider travel.
+Per-zone tonal adaptation. The original does no per-pixel brightening or darkening beyond the fusion; exposure only feeds the tone mapping. Six Lift and Pull sliders now set how hard highlights, midtones and shadows are brightened in dark scenes and suppressed in bright ones, working the same under eye adaptation or manual exposure. All six default to 1.0 — neutral, identical to the original — with above 1.0 amplifying a zone and below suppressing it. The standard 4.0 midtone coefficient keeps all three responding proportionally to the same slider travel.
 
-The second is adaptive split toning. Pixels that are measurably brighter than the scene average receive a warm tint (yellow through orange to amber, adjustable). Pixels that fall below a shadow threshold receive a cool tint (cyan through blue to indigo). Both tints are masked by the local contrast ratio against the scene mean rather than absolute brightness, so the effect tracks the environment instead of clipping at fixed luma values. Tint strength can optionally scale with the main INTENSITY slider so it disappears completely when the shader is dialed back.
+Adaptive split toning. Pixels measurably brighter than the scene average take a warm tint (yellow through orange to amber); those below a shadow threshold take a cool one (cyan through blue to indigo). Both are masked by local contrast ratio against the scene mean rather than absolute brightness, so the effect tracks the environment instead of clipping at fixed luma values. Tint strength can scale with INTENSITY, which also fades it with the Dark Scene Fade and drops it entirely when the shader is dialled back.
 
-The third is configurable luma texture resolution and adaptation trigger radius. The internal luminance texture used for eye adaptation can be run at full resolution or downscaled to 512×512, 256×256, 128×128, or 64×64. Smaller textures collapse their mip chains sooner and are cheaper. The Trigger Radius slider selects which mip level is sampled for scene average computation. Lower values weight toward a central screen region, while higher values approach a full-frame average.
+Configurable luma texture resolution and trigger radius. The internal luminance texture runs at full resolution or downscales to 512×512, 256×256, 128×128 or 64×64 — smaller ones collapse their mip chains sooner and cost less. Trigger Radius picks which mip feeds the scene average: low values weight a central region, high values approach a full-frame average.
 
-The fourth is a more stable and eye-like adaptation model. Scene brightness is measured as a geometric (log) mean rather than a plain average, so a few very bright pixels — a torch, a muzzle flash, a patch of sky — can no longer drag the whole exposure around; the metric tracks the overall tonal balance instead. Adaptation uses a continuous exponential decay formula so its speed is frame rate independent, and the time constant is asymmetric: the eye brightens quickly but dark-adapts slowly, so darkening transitions ease in more gradually than brightening ones via a configurable multiplier.
+A more stable, eye-like adaptation model. Scene brightness is a geometric (log) mean rather than a plain average, so a torch, a muzzle flash or a patch of sky can't drag the exposure around — the metric follows overall tonal balance. Adaptation uses continuous exponential decay, making its speed frame rate independent, and its time constant is asymmetric: the eye brightens quickly but dark-adapts slowly, so darkening eases in more gradually by a configurable multiplier.
 
-The asymmetry runs in two stages. A short symmetric pre-filter cleans up the measurement first, and only that clean signal reaches the asymmetric stage. This matters more than it sounds: a fast-up, slow-down filter fed a flickering signal creeps upward, and next to a campfire it will sit around ten percent brighter than the scene actually is. The direction of travel also fades across a small deadband rather than being decided by a hard comparison, so ordinary frame-to-frame movement doesn't flip the time constant back and forth. A floor and ceiling clamp on the measured brightness prevent a fade-to-black or a sudden white flash from railing the adaptation and slamming the tonal curves the moment it passes.
+The asymmetry runs in two stages. A short symmetric pre-filter cleans the measurement, and only that clean signal reaches the asymmetric stage. This matters more than it sounds: a fast-up, slow-down filter fed a flickering signal creeps upward, and next to a campfire it'll sit about ten percent brighter than the scene really is. Direction of travel fades across a small deadband rather than a hard comparison, so ordinary frame-to-frame movement doesn't flip the time constant back and forth. A floor and ceiling on the measurement stop a fade-to-black or a white flash from railing the adaptation and slamming the tonal curves.
 
-The fifth is simultaneous contrast masking. This adds a microscopic dark halo around bright highlights by slightly deepening pixels on the shadow side of an edge. By selectively darkening the shadow boundary, it exploits the human eye’s natural contrast enhancement (the Chevreul illusion), making bright areas appear more luminous without increasing their actual brightness. Unlike standard clarity filters, it uses the smoothed `Base` layer for the mask, ensuring it is spatially aware and ignores high frequency noise. The halo is additionally gated by the local base brightness, so it only forms next to genuinely bright regions instead of darkening fine texture in flat shadow areas.
+Simultaneous contrast masking. A microscopic dark halo around bright highlights, made by slightly deepening pixels on the shadow side of an edge. That exploits the eye's own contrast enhancement — the Chevreul illusion — so bright areas read as more luminous without getting brighter. Unlike a standard clarity filter the mask comes from the smoothed base layer, which keeps it spatially aware and blind to high-frequency noise. It's gated on local base brightness so it only forms next to genuinely bright regions instead of etching texture in flat shadows, and it scales with INTENSITY so it fades with the main effect.
 
-The sixth is configurable Purkinje adaptation. In dark scenes, it simulates the shift from photopic to scotopic vision by reducing red sensitivity and introducing a subtle blue-green bias in shadow regions. The effect exposes separate controls for red reduction, green bias, blue bias, the scene brightness below which the effect operates at full strength, and the scene brightness above which it becomes fully disabled. This allows the effect to be tuned from a subtle perceptual enhancement to a stronger low-light vision simulation.
+Configurable Purkinje adaptation. In dark scenes it simulates the shift from photopic to scotopic vision by cutting red sensitivity and adding a subtle blue-green bias to shadows. Red reduction, green bias, blue bias, the brightness below which it runs at full strength and the brightness above which it switches off are all exposed, so it tunes from a light nudge to a strong low-light simulation.
 
-The seventh is multi-scale local contrast enhancement. The original guided filter extracts a single base layer, limiting local contrast manipulation to one spatial frequency. PHDR2 extends this into three independently adjustable scales: Micro, Medium, and Macro. Micro Contrast Boost affects fine texture detail and edge definition, Medium Contrast Boost influences object-level structure, and Macro Contrast Boost modifies large-scale depth relationships across the scene. The three scales are decomposed into non-overlapping frequency bands so each slider controls a distinct range without stepping on the others, and the base layers are reconstructed with a fast guided filter that derives its coefficients at low resolution and upsamples them, keeping strong edges free of the bright and dark halos that naive upsampling produces.
+Multi-scale local contrast. The original guided filter extracts one base layer, limiting local contrast work to a single spatial frequency. This splits it into three: Micro for fine texture and edge definition, Medium for object-level structure, Macro for large-scale depth. The bands don't overlap, so each slider owns a distinct range. Base layers come from a fast guided filter that derives coefficients at low resolution and upsamples them, keeping strong edges free of the halos naive upsampling produces. Each scale reads its taps from the mip matching their spacing, so a wide window averages the pixels it covers instead of point-sampling a sparse comb that would alias and shimmer in motion.
 
-The eighth is adaptive interleaved gradient noise (IGN) dithering. SDR displays and 8-bit output pipelines can exhibit visible gradient banding when exposure, local contrast, or color volume are aggressively enhanced. PHDR2 can optionally inject a small amount of analytical interleaved gradient noise only into regions identified as being susceptible to banding. This helps preserve smooth gradients while avoiding unnecessary noise in detailed regions. The noise pattern scrolls each frame so it reads as fine grain rather than a fixed screen-space overlay, and its amplitude is matched to the actual output bit depth (8- or 10-bit) instead of always assuming 8-bit. A dedicated debug visualization is also included to display the exact dithering contribution being applied to the final image.
+Adaptive interleaved gradient noise dithering. SDR displays and 8-bit pipelines band visibly when exposure, local contrast or colour volume are pushed hard. A small amount of analytical IGN goes into just the regions prone to banding, keeping gradients smooth without adding noise to detail. The pattern scrolls each frame so it reads as fine grain rather than a fixed overlay, and its amplitude matches the real output bit depth (8- or 10-bit) instead of assuming 8-bit. A debug view shows exactly what's being applied.
 
-The ninth is dynamic intensity. In very dark scenes there is little dynamic range left to recover, and pushing the tone fusion at full strength mostly amplifies compression noise and crushed shadow detail. PHDR2 can fade the fusion out as the measured scene brightness drops below a configurable threshold, so the effect stays strong where there is real range to work with and gets out of the way where there is not. It is controlled by an amount slider (how much of the fade to apply) and a threshold slider (the brightness at which the fade has fully released), and defaults to a gentle half-strength fade. Set the amount to zero to hold full intensity at any brightness.
+Dynamic intensity. Very dark scenes have little range left to recover, and running the fusion at full strength there mostly amplifies compression noise and crushed shadows, so it fades out as measured brightness drops below a threshold. An amount slider sets how much of the fade applies, a threshold slider the brightness at which it has fully released; the default is a gentle half-strength fade, and zero holds full intensity at any brightness.
 
-The ramp starts at the Adaptation Floor instead of at black, since the floor would otherwise clip the bottom off it and the fade would never fully arrive. It also has a minimum width, so setting the threshold close to the floor can't squeeze the whole transition into a couple of hundredths and turn it into a step.
+The ramp starts at the Adaptation Floor rather than at black, since the floor would otherwise clip the bottom off it and the fade would never fully arrive. A minimum width stops a threshold set near the floor from squeezing the transition into a couple of hundredths and turning it into a step.
 
-Underlying all of this, the boosted result is soft-clipped in a hue-preserving way: when the tone fusion pushes a saturated highlight past the display maximum, all three channels are scaled down together so it desaturates cleanly toward white instead of clipping one channel at a time and shifting the hue.
+Underneath all of it the boosted result is soft-clipped in a hue-preserving way: when the fusion pushes a saturated highlight past display maximum, all three channels scale down together, so it desaturates cleanly toward white instead of clipping one channel at a time and shifting hue.
 
-The shader is self-contained and has no dependency on external header files.
+The shader is self-contained and needs no external headers.
 
 **Requires:** `ReShade.fxh` only. No additional shader packs needed.
 
@@ -165,8 +163,8 @@ The shader is self-contained and has no dependency on external header files.
 | Edge Sensitivity               | 0.001           | Epsilon in the guided filter variance calculation. Lower values preserve more edges in the base layer; higher values smooth across them.                |
 | Micro Contrast Boost           | 0.0             | Amplifies or suppresses fine-scale texture detail and high-frequency local contrast.                                                                    |
 | Medium Contrast Boost          | 0.0             | Amplifies or suppresses medium-scale object contrast and structural detail.                                                                             |
-| Macro Contrast Boost           | 0.0             | Amplifies or suppresses large-scale depth contrast and scene separation.                                                                                |
-| Contrast Shadow Strength       | 0.30            | Intensity of the microscopic dark halo around bright highlights. Higher values increase perceived edge contrast without sharpening artifacts.           |
+| Macro Contrast Boost           | 0.0             | Adds large-scale depth contrast and scene separation back into the image. Unlike the other two this one starts at 0 rather than centring there — see the note below. |
+| Contrast Shadow Strength       | 1.0             | Intensity of the microscopic dark halo around bright highlights, read as a fraction of INTENSITY. Higher values increase perceived edge contrast without sharpening artifacts. |
 | Enable Dithering               | on              | Enables adaptive interleaved gradient noise dithering to reduce visible SDR gradient banding.                                                           |
 | Enable Eye Adaptation          | on              | When enabled, scene brightness is measured each frame and used to drive the tone mapping. When disabled, Manual Exposure is used as a fixed scene mean. |
 | Eye Adaptation Speed           | 0.5             | Smoothing time in seconds when the scene gets brighter (light adaptation). Higher values produce slower, more cinematic transitions.                    |
@@ -183,9 +181,9 @@ The shader is self-contained and has no dependency on external header files.
 | Shadow Lift                    | 1.0             | Shadow recovery strength when the scene is darker than average. Lower values preserve deeper blacks.                                                    |
 | Highlight Pull                 | 1.0             | Highlight suppression strength when the scene is brighter than average. Values above 1.0 darken highlights more aggressively.                           |
 | Midtone Pull                   | 1.0             | Midtone suppression strength when the scene is brighter than average.                                                                                   |
-| Shadow Pull                    | 1.0             | Shadow suppression strength when the scene is brighter than average.                                                                                    |
+| Shadow Pull                    | 1.0             | Shadow suppression strength when the scene is brighter than average.                                                                                   |
 | Enable Split Toning            | on              | Toggles adaptive warm highlight tinting and cool shadow tinting.                                                                                        |
-| Scale Tints with INTENSITY     | on              | When enabled, tint strength scales proportionally with the INTENSITY slider.                                                                            |
+| Scale Tints with INTENSITY     | on              | When enabled, tint strength scales with INTENSITY and fades with the Dark Scene Fade.                                                                   |
 | Highlight Tint Tone            | 0.5             | Hue of the warm highlight tint. 0.0 = golden yellow, 0.5 = warm orange, 1.0 = deep amber.                                                               |
 | Shadow Tint Tone               | 0.5             | Hue of the cool shadow tint. 0.0 = cyan/teal, 0.5 = cool blue, 1.0 = deep indigo.                                                                       |
 | Highlight Tint Base Intensity  | 0.15            | Maximum opacity of the warm tint at the strongest contrast ratio.                                                                                       |
@@ -201,22 +199,25 @@ The shader is self-contained and has no dependency on external header files.
 | Debug: Visualize Contrast Mask | off             | Displays the simultaneous contrast mask used to generate the microscopic dark halo around highlights.                                                   |
 | Debug: Visualize Dithering     | off             | Displays the actual adaptive dithering contribution being injected into the final image.                                                                |
 
-
 #### Notes on the Lift and Pull sliders
 
-All six sliders are intentionally neutral at their default values. Loading the shader with no adjustments gives output identical to the original PHDR. The sliders are designed for deliberate tuning rather than preset-style defaults. Push Highlight Lift and Shadow Lift together above 1.0 in games with consistently dark imagery to increase perceived depth in the shadowed regions. In bright outdoor scenes, Highlight Pull above 1.0 helps recover the sensation of blown highlights without introducing haze. Shadow Pull below 1.0 resists darkening of shadow areas in those same bright scenes if you want to preserve the shadow detail the fusion already recovered.
+All six are neutral at their defaults, so loading the shader unadjusted gives output identical to the original PHDR. They're for deliberate tuning, not preset-style defaults. In consistently dark games, push Highlight Lift and Shadow Lift above 1.0 together to deepen shadowed regions. In bright outdoor scenes, Highlight Pull above 1.0 recovers the sensation of blown highlights without haze, and Shadow Pull below 1.0 resists darkening if you want to keep the shadow detail the fusion already found.
 
-Which group is active depends on the **Tonal Neutral Point**. Scenes measuring darker than it use the Lift sliders; scenes brighter than it use the Pull sliders. It defaults to 0.30 rather than the midpoint because scene brightness is measured as a geometric mean in gamma space, which reads well below 0.5 even in bright outdoor scenes — a 0.5 pivot would leave the Pull sliders effectively unreachable.
+Which group runs depends on the **Tonal Neutral Point**: scenes darker than it use Lift, brighter use Pull. It defaults to 0.30 rather than the midpoint because scene brightness is a geometric mean in gamma space, which reads well below 0.5 even outdoors — a 0.5 pivot would leave Pull effectively unreachable.
 
-How hard either group pushes depends on how far the scene sits from the pivot, measured in plain brightness over a fixed range that is identical above and below it. Moving the pivot away from your usual scene brightness therefore strengthens the response as well as choosing which group runs. Direction, though, comes from the sliders alone: they brighten above 1.0 and darken below it. Raise the pivot with Lift set under 1.0 and a dark scene gets darker, not brighter — if the image moves the opposite way to what you expected, check which side of 1.0 the relevant sliders sit on.
+How hard either group pushes depends on how far the scene sits from the pivot, measured in plain brightness over a fixed range identical above and below it. Moving the pivot away from your usual scene brightness therefore strengthens the response as well as choosing the group. Direction comes from the sliders alone: above 1.0 brightens, below darkens. Raise the pivot with Lift under 1.0 and a dark scene gets darker, not brighter — so if the image moves the wrong way, check which side of 1.0 the relevant sliders are on.
 
-Both sides share one response shape over one fixed range, so a Lift of 1.2 a tenth below neutral answers a Pull of 1.2 a tenth above it exactly. Moving the pivot slides that response along rather than stretching it, which is what keeps the two groups comparable at any setting. The shape is flat at the neutral point and flat again at full travel, so a scene crossing the pivot doesn't kick, and the response steadies once a scene is properly dark or properly bright — which is where scenes spend most of their time. In practice this is what stops a slight shift in a dark scene from producing a sudden jump in brightness.
+Both sides share one response shape over one fixed range, so a Lift of 1.2 a tenth below neutral answers a Pull of 1.2 a tenth above it exactly, and moving the pivot slides that response along rather than stretching it. The shape is flat at the neutral point and flat again at full travel, so a scene crossing the pivot doesn't kick and the response steadies once a scene is properly dark or properly bright — where scenes spend most of their time. That's what stops a slight shift in a dark scene producing a sudden jump.
 
-The tonal delta is also weight-limited so the tone curve can never fold back on itself. Opposed settings, such as a crushed Highlight Lift against a raised Shadow Lift, can otherwise tilt the delta steeply enough that a darker pixel ends up brighter than a lighter one. The limit is derived from the slope of the delta, so it only engages when a combination would actually invert; at worst the curve goes flat.
+The tonal delta is weight-limited so the curve can't fold back on itself. Opposed settings, like a crushed Highlight Lift against a raised Shadow Lift, could otherwise tilt it steeply enough that a darker pixel comes out brighter than a lighter one. The limit derives from the slope, so it only engages when a combination would actually invert; at worst the curve goes flat.
 
-The **Contrast Shadow Strength** slider controls the intensity of the microscopic dark halos around bright objects. An internal scaling factor boosts subtle local details for better responsiveness, a hard ceiling prevents edges from turning pitch black or creating harsh rendering artifacts.
+#### Notes on the contrast sliders
 
-The shader includes internal logic to prevent the Purkinje effect and Split Toning from stacking in deep shadows. This ensures that shadow color shifts remain natural, preventing muddy color profiles in dark scenes.
+**Macro Contrast Boost** runs 0 to 1 rather than -1 to 1 like Micro and Medium. The tone mapping divides coarse structure out of the reconstruction already, so 0 is the flat end of the range and the slider adds large-scale depth back on top. There's nothing below 0 to suppress — a negative gain would subtract past flat and invert the band, swapping which side of a large edge reads brighter.
+
+**Contrast Shadow Strength** sets the intensity of the dark halos around bright objects. An internal scaling factor boosts subtle local detail for responsiveness and a hard ceiling stops edges going pitch black or producing harsh artifacts. It's read as a fraction of INTENSITY, so the halo fades with the main effect and with the Dark Scene Fade.
+
+The shader also keeps the Purkinje effect and split toning from stacking in deep shadows, so shadow colour shifts stay natural instead of turning muddy.
 
 ---
 

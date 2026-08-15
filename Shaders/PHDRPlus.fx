@@ -1,7 +1,7 @@
 /*-----------------------------------------------------------|
-| ::                  Perceptual HDR 2                    :: |
+| ::                 Perceptual HDR Plus                  :: |
 '------------------------------------------------------------|
-|  Perceptual HDR 2                                          |
+|  Perceptual HDR Plus                                       |
 |  Version: 2.0                                              |
 |                                                            |
 |  Original PHDR (v1.1) by BarbatosBachiko:                  |
@@ -155,9 +155,7 @@ uniform float Contrast_Shadow_Strength <
     ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright\n"
                  "highlights. Higher values increase edge contrast.\n\n"
                  "Read as a fraction of INTENSITY, so the halo fades out with the\n"
-                 "main effect and with the Dark Scene Fade. A preset saved before\n"
-                 "this changed will draw a weaker halo; divide the old value by\n"
-                 "INTENSITY to get the equivalent setting.";
+                 "main effect and with the Dark Scene Fade.";
     ui_type = "drag";
     ui_min = 0.0; ui_max = 2.0; ui_step = 0.001;
 > = 1.0;
@@ -1428,7 +1426,7 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 
 technique DZ_PerceptualHDR
 <
-    ui_label = "Perceptual HDR";
+    ui_label = "Perceptual HDR Plus";
 >
 {
     pass Luma         { VertexShader = PostProcessVS; PixelShader = PS_Luma;                 RenderTarget = TexLuma;           }
