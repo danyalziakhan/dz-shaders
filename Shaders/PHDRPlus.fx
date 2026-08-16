@@ -197,24 +197,30 @@ uniform float DarkAdaptationMult <
 
 uniform float AdaptMin <
     ui_type = "slider";
-    ui_min = 0.0; ui_max = 0.5;
+    ui_min = 0.01; ui_max = 0.5;
     ui_step = 0.001;
     ui_label = "Adaptation Floor";
     ui_category = "Eye Adaptation";
     ui_tooltip = "Lower clamp on the measured scene brightness. Raising this stops a\n"
                  "near-black frame (e.g. a fade-out or a wall of shadow) from dragging\n"
-                 "the exposure all the way to the floor and blowing out the next shot.";
+                 "the exposure all the way to the floor and blowing out the next shot.\n\n"
+                 "Raise it past the Tonal Neutral Point and no scene can ever measure\n"
+                 "dark enough to count as below average, which leaves the Tonal\n"
+                 "Brightening (Lift) sliders with nothing to act on.";
 > = 0.03;
 
 uniform float AdaptMax <
     ui_type = "slider";
-    ui_min = 0.5; ui_max = 1.0;
+    ui_min = 0.5; ui_max = 0.99;
     ui_step = 0.001;
     ui_label = "Adaptation Ceiling";
     ui_category = "Eye Adaptation";
     ui_tooltip = "Upper clamp on the measured scene brightness. Lowering this stops a\n"
                  "white flash (explosion, muzzle flare) from railing the exposure and\n"
-                 "crushing the scene dark for a moment afterwards.";
+                 "crushing the scene dark for a moment afterwards.\n\n"
+                 "Lower it below the Tonal Neutral Point and no scene can ever measure\n"
+                 "bright enough to count as above average, which leaves the Tonal\n"
+                 "Darkening (Pull) sliders with nothing to act on.";
 > = 0.85;
 
 uniform float ManualExposure <
@@ -308,7 +314,12 @@ uniform float TonalNeutralPoint <
                  "scene gets darker, not brighter.\n\n"
                  "Scene brightness is a geometric mean in gamma space, which typically\n"
                  "reads well below 0.5 even in bright outdoor scenes, so the pivot sits\n"
-                 "at 0.30 to keep the Pull sliders reachable.";
+                 "at 0.30 to keep the Pull sliders reachable.\n\n"
+                 "Keep it inside the Adaptation Floor and Ceiling. Sitting close to\n"
+                 "either one leaves a scene little room to travel on that side, so the\n"
+                 "group it feeds reaches only part of its travel and needs a higher\n"
+                 "slider setting to push as hard. Past either one, that group stops\n"
+                 "acting at all, since no scene can measure on that side of the pivot.";
 > = 0.30;
 
 // ---- Tonal Adaptation - Brightening ----
@@ -1280,6 +1291,11 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // neutral answers a Pull of 1.2 a tenth above it. smoothstep is flat at the
     // pivot and flat again at full travel, so settled scenes hold steady and
     // nothing kicks as the scene drifts across neutral.
+    //
+    // Which branch can run is bounded by the Adaptation Floor and Ceiling, since
+    // those cap what sm_adapt can report. A pivot outside that bracket leaves one
+    // branch unreachable and its three sliders inert, and a pivot near either end
+    // leaves that side too little travel to reach full response.
     float pivot = clamp(TonalNeutralPoint, 0.05, 0.95);
 
     // sm_adapt defaults to ManualExposure when adaptation is disabled
