@@ -162,7 +162,7 @@ uniform float Contrast_Shadow_Strength <
 
 uniform bool EnableDithering <
     ui_label = "Enable Dithering";
-    ui_category = "General";
+    ui_category = "Dithering";
     ui_tooltip = "Breaks up gradient banding by adding a triangular noise pattern just\n"
                  "below the output's quantisation step, applied only where a band is\n"
                  "likely to form. Each channel gets its own pattern so a coloured\n"
@@ -174,7 +174,7 @@ uniform float DitherStrength <
     ui_min = 0.0; ui_max = 3.0;
     ui_step = 0.01;
     ui_label = "Dither Strength";
-    ui_category = "General";
+    ui_category = "Dithering";
     ui_tooltip = "Amplitude of the dither, measured in output quantisation steps.\n\n"
                  "1.0 is the amount the maths asks for: a triangular spread of one\n"
                  "step either side of the true colour, which is the least noise that\n"
@@ -185,6 +185,195 @@ uniform float DitherStrength <
                  "Raise it if you want the grain itself to read as film texture,\n"
                  "lower it if a dark scene looks busy.";
 > = 1.0;
+
+uniform int DitherPattern <
+    ui_type = "combo";
+    ui_items = "Gradient Noise\0Blue Noise Mask\0";
+    ui_label = "Dither Pattern";
+    ui_category = "Dithering";
+    ui_tooltip = "Which pattern the dither draws from.\n\n"
+                 "Gradient Noise is computed on the spot and needs no texture. It\n"
+                 "spreads its values well over a small neighbourhood, which is most\n"
+                 "of what a dither pattern needs.\n\n"
+                 "Blue Noise Mask reads a stored spatiotemporal mask instead. It is\n"
+                 "spread more evenly again, and its run of values at any one pixel is\n"
+                 "spread over time as well, so the grain settles rather than crawling\n"
+                 "when the camera holds still. Needs dz_stbn_512x256.png in the\n"
+                 "ReShade Textures folder.";
+> = 0;
+
+uniform bool EnableDeband <
+    ui_label = "Enable Debanding";
+    ui_category = "Debanding";
+    ui_category_closed = true;
+    ui_tooltip = "Rebuilds gradients that have been quantised into visible steps.\n\n"
+                 "Dithering and debanding solve different halves of the problem.\n"
+                 "Dithering stops a smooth gradient from banding on the way to the\n"
+                 "display. Debanding repairs a gradient that is already stepped, which\n"
+                 "no amount of dithering can recover.";
+> = true;
+
+uniform float DebandMaxCorrection <
+    ui_type = "slider";
+    ui_min = 0.5; ui_max = 8.0;
+    ui_step = 0.1;
+    ui_label = "Deband Correction Limit";
+    ui_category = "Debanding";
+    ui_tooltip = "The furthest the debander may move any pixel, in output quantisation\n"
+                 "steps.\n\n"
+                 "This is what keeps a repair from turning into a blur. A band is a\n"
+                 "step or two tall, so that is the size of correction it needs; a much\n"
+                 "larger one is not repairing a step, it is averaging away contrast\n"
+                 "that belongs in the picture. Capping it means the debander can flatten\n"
+                 "the step without eating into the local contrast this shader just put\n"
+                 "there, however wide a radius it is searching over.\n\n"
+                 "The limit eases in rather than clipping, so corrections below half of\n"
+                 "it are untouched and larger ones bend toward it.";
+> = 2.0;
+
+uniform float DebandSplit <
+    ui_type = "slider";
+    ui_min = 0.25; ui_max = 8.0;
+    ui_step = 0.05;
+    ui_label = "Deband Split Point";
+    ui_category = "Debanding";
+    ui_tooltip = "How far this shader has to have moved a pixel before that pixel is\n"
+                 "handed to the Shader Effect settings rather than the Source Image\n"
+                 "ones, in quantisation steps.\n\n"
+                 "The two sets of settings are not alternatives. Both run every frame,\n"
+                 "each on its own part of the picture, and this is the line between\n"
+                 "them. Pixels the shader reworked get one treatment, pixels it left\n"
+                 "close to how they arrived get the other, and the handover is gradual\n"
+                 "rather than a hard edge.";
+> = 1.0;
+
+uniform int DebandTaps <
+    ui_type = "combo";
+    ui_items = "8 samples\0"
+               "16 samples\0"
+               "24 samples\0"
+               "32 samples\0";
+    ui_label = "Deband Samples";
+    ui_category = "Debanding";
+    ui_tooltip = "Samples taken per pass, spread evenly over a disc. Shared by both\n"
+                 "sets of settings, since it trades cost against how well the\n"
+                 "neighbourhood is measured rather than changing the look.\n\n"
+                 "The decision to flatten a pixel rests partly on how much its\n"
+                 "neighbourhood scatters, and a handful of samples estimates that so\n"
+                 "poorly that the threshold has to be left loose enough to swallow\n"
+                 "real detail. Raise this before raising either threshold.";
+> = 1;
+
+// ---- Debanding: the part of the frame this shader reworked ----
+
+uniform bool EnableDebandEffect <
+    ui_label = "Enable";
+    ui_category = "Debanding: Shader Effect";
+    ui_tooltip = "Debanding for pixels this shader moved by more than the split point.\n"
+                 "Steps here are ones the tone fusion opened up or widened, so this\n"
+                 "side can afford to work harder than the other.";
+> = true;
+
+uniform float DebandEffectThreshold <
+    ui_type = "slider";
+    ui_min = 0.5; ui_max = 8.0;
+    ui_step = 0.1;
+    ui_label = "Threshold";
+    ui_category = "Debanding: Shader Effect";
+    ui_tooltip = "How far a pixel may sit from its surroundings and still be treated\n"
+                 "as part of a flat area, in quantisation steps of the incoming frame.";
+> = 1.75;
+
+uniform float DebandEffectRadius <
+    ui_type = "slider";
+    ui_min = 4.0; ui_max = 64.0;
+    ui_step = 1.0;
+    ui_label = "Radius";
+    ui_category = "Debanding: Shader Effect";
+    ui_tooltip = "How far the first pass looks for the true value of a flat area, in\n"
+                 "pixels. Later passes reach further. It wants to be wider than the\n"
+                 "bands themselves, or every sample lands inside the same step.";
+> = 14.0;
+
+uniform int DebandEffectIterations <
+    ui_type = "slider";
+    ui_min = 1; ui_max = 4;
+    ui_label = "Passes";
+    ui_category = "Debanding: Shader Effect";
+    ui_tooltip = "How many times to repeat, each reaching further out and judging more\n"
+                 "strictly than the last.";
+> = 2;
+
+uniform float DebandEffectDetail <
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 4.0;
+    ui_step = 0.05;
+    ui_label = "Detail Guard";
+    ui_category = "Debanding: Shader Effect";
+    ui_tooltip = "How much pixel-to-pixel variation marks an area as real texture and\n"
+                 "puts it out of reach, in quantisation steps.\n\n"
+                 "This is the test that separates a band from fine detail. Inside a\n"
+                 "band, neighbouring pixels are identical: that is what makes it a\n"
+                 "band. Texture varies from one pixel to the next however faint it is\n"
+                 "overall. Judging by how far apart values are cannot tell the two\n"
+                 "apart, because quiet texture and a band both look quiet, which is\n"
+                 "how debanders end up sanding off detail.\n\n"
+                 "Lower it if texture is being flattened. Raise it if bands with a\n"
+                 "little noise on them are being left alone. 0 disables the guard.";
+> = 1.0;
+
+// ---- Debanding: the part of the frame this shader left close to as it found it ----
+
+uniform bool EnableDebandSource <
+    ui_label = "Enable";
+    ui_category = "Debanding: Source Image";
+    ui_tooltip = "Debanding for pixels this shader barely moved. Any banding here was\n"
+                 "in the frame before the shader saw it, and so was any texture, so\n"
+                 "this side is set gently by default: the detail it could damage is\n"
+                 "detail that looked correct before the shader was ever enabled.";
+> = true;
+
+uniform float DebandSourceThreshold <
+    ui_type = "slider";
+    ui_min = 0.5; ui_max = 8.0;
+    ui_step = 0.1;
+    ui_label = "Threshold";
+    ui_category = "Debanding: Source Image";
+    ui_tooltip = "How far a pixel may sit from its surroundings and still be treated\n"
+                 "as part of a flat area, in quantisation steps of the incoming frame.";
+> = 1.5;
+
+uniform float DebandSourceRadius <
+    ui_type = "slider";
+    ui_min = 4.0; ui_max = 64.0;
+    ui_step = 1.0;
+    ui_label = "Radius";
+    ui_category = "Debanding: Source Image";
+    ui_tooltip = "How far the first pass looks for the true value of a flat area, in\n"
+                 "pixels. Later passes reach further.";
+> = 12.0;
+
+uniform int DebandSourceIterations <
+    ui_type = "slider";
+    ui_min = 1; ui_max = 4;
+    ui_label = "Passes";
+    ui_category = "Debanding: Source Image";
+    ui_tooltip = "How many times to repeat, each reaching further out and judging more\n"
+                 "strictly than the last.";
+> = 1;
+
+uniform float DebandSourceDetail <
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 4.0;
+    ui_step = 0.05;
+    ui_label = "Detail Guard";
+    ui_category = "Debanding: Source Image";
+    ui_tooltip = "How much pixel-to-pixel variation marks an area as real texture and\n"
+                 "puts it out of reach, in quantisation steps. Set lower than the\n"
+                 "Shader Effect side, because the texture at risk here is texture the\n"
+                 "shader had no hand in.\n\n"
+                 "Lower it further if detail is being flattened. 0 disables the guard.";
+> = 0.75;
 
 uniform bool EnableAdaptation <
     ui_label = "Enable Eye Adaptation";
@@ -549,6 +738,13 @@ uniform bool Debug_Dithering <
     ui_type = "radio";
 > = false;
 
+uniform bool Debug_Deband <
+    ui_label = "Debug: Visualize Debanding";
+    ui_category = "Debug";
+    ui_type = "radio";
+    ui_tooltip = "Shows what the debander moved, amplified. Black means untouched.";
+> = false;
+
 uniform float FrameTime < source = "frametime"; >;
 uniform int FrameCount < source = "framecount"; >;
 
@@ -560,6 +756,11 @@ uniform int FrameCount < source = "framecount"; >;
     #define BUFFER_COLOR_BIT_DEPTH 8
 #endif
 static const float DitherSteps = float((1 << BUFFER_COLOR_BIT_DEPTH) - 1);
+
+// Layout of the blue noise atlas. Kept in sync with tools/make_stbn.py.
+#define STBN_SIZE  64
+#define STBN_COLS  8
+#define STBN_DEPTH 32
 
 //----------------|
 // :: Textures :: |
@@ -589,6 +790,45 @@ namespace DZPHDR
     sampler sTexColor
     {
         Texture = TexColor;
+    };
+
+    // The tone-mapped frame, held back one pass so the debander can look at its
+    // neighbours and the dither can be the last thing that happens. Alpha carries
+    // how far this shader moved each pixel, which is what scopes the debander.
+    //
+    // Half float, not 8-bit: the debander's whole job is to land on values between
+    // the quantisation levels, and backbuffer precision would round them straight
+    // back onto the steps it just removed.
+    texture TexCombined
+    {
+        Width  = BUFFER_WIDTH;
+        Height = BUFFER_HEIGHT;
+        Format = RGBA16F;
+    };
+
+    sampler sTexCombined
+    {
+        Texture = TexCombined;
+    };
+
+    // Spatiotemporal blue noise, generated by tools/make_stbn.py. STBN_DEPTH
+    // slices of STBN_SIZE square, laid out left to right and top to bottom, with
+    // an independent volume in each of R, G and B.
+    texture TexBlueNoise < source = "dz_stbn_512x256.png"; >
+    {
+        Width  = 512;
+        Height = 256;
+        Format = RGBA8;
+    };
+
+    sampler sTexBlueNoise
+    {
+        Texture   = TexBlueNoise;
+        AddressU  = WRAP;
+        AddressV  = WRAP;
+        MinFilter = POINT;
+        MagFilter = POINT;
+        MipFilter = POINT;
     };
 
     texture TexLuma
@@ -902,6 +1142,17 @@ float3 GamutSoftClip(float3 c)
 //---------------------|
 // :: Pixel Shaders :: |
 //---------------------|
+
+// One voxel of the blue noise volume for this pixel, on the given slice. The
+// stored bytes are rank order, so shifting to the centre of each bin turns the
+// 256 levels into an unbiased [0,1) rather than a ramp that reaches both ends.
+float3 SampleBlueNoise(int2 pixel, int slice)
+{
+    int2 cell  = int2(slice % STBN_COLS, slice / STBN_COLS);
+    int2 coord = cell * STBN_SIZE + (pixel & int2(STBN_SIZE - 1, STBN_SIZE - 1));
+    float3 raw = tex2Dfetch(sTexBlueNoise, coord).rgb;
+    return (raw * 255.0 + 0.5) / 256.0;
+}
 
 void PS_Luma(VS_OUTPUT input, out float luma : SV_Target)
 {
@@ -1240,7 +1491,7 @@ void PS_SaveAdapt(VS_OUTPUT input, out float2 save : SV_Target)
     save = tex2Dfetch(sTexAdapt, 0).rg;
 }
 
-float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
+float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 {
     float3 original = tex2D(sTexColor, input.uv).rgb;
     float L    = tex2D(sTexLuma, input.uv).r;
@@ -1454,29 +1705,257 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     if (Debug_Mask)
     {
         // We multiply by 5 to make the subtle dark halo clearly visible as bright pixels.
-        return contrast_shadow * 5.0;
+        // Alpha 0 keeps the presentation pass from debanding a debug view.
+        return float4((contrast_shadow * 5.0).xxx, 0.0);
     }
     blended = saturate(blended * (1.0 - contrast_shadow));
 
-    // Triangular dither over interleaved gradient noise, one pattern per channel.
+    // Alpha records how far this shader moved the pixel, measured in quantisation
+    // steps and taken on the channel that moved most. The presentation pass uses it
+    // to decide where debanding is this shader's business: a step it never opened
+    // is a step it has no reason to go looking for.
+    float moved = max(max(abs(blended.r - original.r),
+                          abs(blended.g - original.g)),
+                          abs(blended.b - original.b)) * DitherSteps;
+
+    return float4(blended, moved);
+}
+
+// Rebuild a gradient that has been quantised into visible steps.
+//
+// A band is a run of pixels that should have differed slightly and instead all
+// landed on the same level. The value they should have had is still recoverable,
+// because the surrounding area still carries the gradient: average a wide enough
+// neighbourhood and the average lands between the levels, where the pixel belonged.
+//
+// Knowing when not to do that is the whole difficulty, and it is where debanders
+// lose detail. Three tests have to agree.
+//
+// Two of them are the usual pair, graded rather than pass/fail so the repair fades
+// in and out instead of switching and leaving blotches along the boundary. The
+// neighbourhood average has to sit close to the pixel, which holds across a flat
+// step and fails at an edge. The samples have to agree with each other, which holds
+// on a gradient and fails in loud texture.
+//
+// Neither of those can see quiet texture, and that is the failure every debander
+// built on this shape shares. Both ask how FAR apart values are, and faint detail
+// is not far apart, so it reads exactly like a band and gets flattened. The third
+// test asks something else: how OFTEN the value changes. Inside a band neighbouring
+// pixels are identical, which is what makes it a band, while texture changes from
+// one pixel to the next however faint it is overall. That is a property the two
+// genuinely differ on, so it can separate them where amplitude cannot.
+//
+// Hold a value to +/-limit without cornering at it. Anything up to half the limit
+// passes through untouched, and beyond that the curve bends over and approaches the
+// limit instead of meeting it, so no new edge appears where the cap starts to bite.
+float3 SoftLimit(float3 v, float limit)
+{
+    float3 a    = abs(v);
+    float knee  = limit * 0.5;
+    float3 over = max(a - knee, 0.0);
+    return sign(v) * min(a, knee + over * knee / (knee + over));
+}
+
+// All three tests read the incoming frame, and only the repair itself is taken
+// from the tone-mapped one. Deciding and reconstructing are different questions.
+// Whether a pixel sits in a band is a question about the frame as it arrived, and
+// it is exact there: quantisation steps are genuinely one step apart, and a band is
+// genuinely piecewise-constant. By the time the tone fusion has been through it,
+// local gain has stretched those steps by an amount that varies across the picture,
+// so a threshold quoted in steps no longer means anything fixed. What the pixel
+// should be replaced with, on the other hand, has to be answered in output space,
+// because that is where the value has to land between the levels. So the taps read
+// both images: the source decides, the output supplies the answer.
+float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
+              float threshold, float radius, int iterations, int taps, float detail)
+{
+    float2 ps = bb::PixelSize;
+    float step_size = 1.0 / DitherSteps;
+
+    // Frequency test: mean absolute difference to the four nearest neighbours of
+    // the source pixel, in steps. Flat inside a band, never flat inside texture.
+    float guard = 1.0;
+
+    if (detail > 0.0)
+    {
+        float3 hf = abs(tex2D(sTexColor, uv + float2( ps.x, 0.0)).rgb - src_centre)
+                  + abs(tex2D(sTexColor, uv + float2(-ps.x, 0.0)).rgb - src_centre)
+                  + abs(tex2D(sTexColor, uv + float2(0.0,  ps.y)).rgb - src_centre)
+                  + abs(tex2D(sTexColor, uv + float2(0.0, -ps.y)).rgb - src_centre);
+
+        float measured = max(max(hf.r, hf.g), hf.b) * 0.25 * DitherSteps;
+        guard = 1.0 - smoothstep(detail * 0.5, detail, measured);
+    }
+
+    if (guard <= 0.0)
+        return out_centre;
+
+    float3 res = out_centre;
+
+    [loop]
+    for (int i = 1; i <= iterations; i++)
+    {
+        // Reach further and judge more strictly as the passes go on, so the first
+        // pass fixes the coarse steps and later ones only tidy what is left.
+        float r_i    = radius * float(i);
+        float bound  = threshold * step_size / float(i);
+
+        // Turn the sampling pattern by a different angle at every pixel, on every
+        // frame, and on every pass. A fixed orientation leaves its own faint
+        // structure behind; rotating it turns that into something the eye averages
+        // away instead.
+        float angle = (jitter + float(i) * 0.618034) * 6.2831853;
+
+        float3 src_sum   = 0.0;
+        float3 src_sumsq = 0.0;
+        float3 out_sum   = 0.0;
+
+        [loop]
+        for (int k = 0; k < taps; k++)
+        {
+            // Golden angle turn with a square-root radius: the samples land evenly
+            // over the whole disc rather than bunching on one ring, which is what
+            // makes both the average and the scatter worth trusting.
+            float t = (float(k) + 0.5) / float(taps);
+            float rr = r_i * sqrt(t);
+            float a = angle + float(k) * 2.39996323;
+
+            float4 at = float4(uv + float2(cos(a), sin(a)) * rr * ps, 0.0, 0.0);
+
+            // Accumulate offsets from the centre rather than the samples themselves.
+            // The spread being measured is a couple of quantisation steps across
+            // values that sit anywhere in [0,1], and taking the variance as the
+            // difference of two near-equal large numbers throws away most of the
+            // float precision exactly where the decision is finest.
+            float3 sd_ = tex2Dlod(sTexColor,    at).rgb - src_centre;
+            float3 od_ = tex2Dlod(sTexCombined, at).rgb - out_centre;
+
+            src_sum   += sd_;
+            src_sumsq += sd_ * sd_;
+            out_sum   += od_;
+        }
+
+        float inv = 1.0 / float(taps);
+
+        float3 src_mean = src_sum * inv;
+        float3 src_sd   = sqrt(max(src_sumsq * inv - src_mean * src_mean, 0.0));
+        float3 out_avg  = out_centre + out_sum * inv;
+
+        // Close to the neighbourhood average: a flat step rather than an edge.
+        // src_mean is already the offset from the centre, so it is that distance.
+        float3 flat_weight = 1.0 - smoothstep(bound * 0.5, bound, abs(src_mean));
+
+        // Neighbourhood agrees with itself: a gradient rather than texture. The
+        // slack is wider than the flatness test because a genuine gradient does
+        // vary across the disc, it just varies smoothly.
+        float3 calm_weight = 1.0 - smoothstep(bound, bound * 2.0, src_sd);
+
+        res = lerp(res, out_avg, flat_weight * calm_weight * guard);
+    }
+
+    // Cap the repair. A band is a step or two tall, so that is the size of the
+    // correction it takes; anything much larger is not flattening a step, it is
+    // averaging away contrast that belongs in the picture. Without this, a wide
+    // search radius over an area the tone fusion has just added local contrast to
+    // will happily average that contrast back out and undo the effect. With it,
+    // the debander can only ever remove the step.
+    return out_centre + SoftLimit(res - out_centre, DebandMaxCorrection / DitherSteps);
+}
+
+// Presentation: repair banding, then dither, then hand the frame over. Dither has
+// to be last, because it exists to survive the quantisation that happens on the
+// way out, and anything that averages pixels afterwards would undo it.
+float3 PS_Present(VS_OUTPUT input) : SV_Target
+{
+    float4 centre = tex2D(sTexCombined, input.uv);
+    float3 blended = centre.rgb;
+
+    // Debug views arrive with alpha 0 and pass straight through.
+    bool passthrough = Debug_Mask;
+
+    float3 debanded = blended;
+
+    [branch]
+    if (EnableDeband && !passthrough)
+    {
+        float3 src = tex2D(sTexColor, input.uv).rgb;
+
+        // Combo entries run 8, 16, 24, 32.
+        int taps = 8 * (clamp(DebandTaps, 0, 3) + 1);
+
+        int   slice  = int(uint(FrameCount) % uint(STBN_DEPTH));
+        float jitter = SampleBlueNoise(int2(input.uv * bb::ScreenSize), slice).r;
+
+        // Alpha holds how far this shader moved the pixel, in steps. That splits the
+        // frame into the part the tone fusion reworked and the part it left close to
+        // how it arrived. The two want different handling and get it: banding the
+        // shader opened up is its own mess to clean, and can be gone after hard,
+        // while anything over the other side of the line was already there, texture
+        // included, so it is treated with a lighter hand. Both run every frame; this
+        // is a crossfade between two treatments, not a choice of one.
+        float effect = smoothstep(DebandSplit * 0.5, DebandSplit, centre.a);
+
+        float3 strong = blended;
+        float3 gentle = blended;
+
+        [branch]
+        if (EnableDebandEffect && effect > 0.0)
+            strong = Deband(input.uv, blended, src, jitter,
+                            DebandEffectThreshold, DebandEffectRadius,
+                            DebandEffectIterations, taps, DebandEffectDetail);
+
+        [branch]
+        if (EnableDebandSource && effect < 1.0)
+            gentle = Deband(input.uv, blended, src, jitter,
+                            DebandSourceThreshold, DebandSourceRadius,
+                            DebandSourceIterations, taps, DebandSourceDetail);
+
+        debanded = lerp(gentle, strong, effect);
+    }
+
+    if (Debug_Deband)
+        return saturate(abs(debanded - blended) * DitherSteps * 0.5);
+
+    blended = debanded;
+
+    // Triangular dither, one decorrelated pattern per channel.
     float3 dither = 0.0;
 
-    if (EnableDithering || Debug_Dithering)
+    if ((EnableDithering || Debug_Dithering) && !passthrough)
     {
-        // Scroll the pattern each frame so it reads as animated grain rather than
-        // a fixed screen-space texture stuck on top of smooth gradients.
-        float2 ign_pos = input.uv * bb::ScreenSize + 5.588238 * float(uint(FrameCount) % 64u);
+        // A single value shared across the channels only dithers luminance, and
+        // leaves a coloured gradient to band in whichever channel crosses its step
+        // first, so all three paths below produce three separate values.
+        float3 uniform_noise;
 
-        // Three separate lookups rather than one value shared across the channels.
-        // A shared value moves all three the same way, which only ever dithers
-        // luminance and leaves a coloured gradient to band in whichever channel
-        // crosses its step first. The offsets are large and unrelated so the three
-        // land on genuinely different parts of the pattern; the outer multiply of
-        // ~53 inside the noise means even a small shift decorrelates them.
+        if (DitherPattern == 1)
+        {
+            // Walk one slice of the volume per frame. The mask is built so that a
+            // single pixel's values across the slices are themselves well spread,
+            // so the grain settles instead of crawling when nothing is moving.
+            int2 pixel = int2(input.uv * bb::ScreenSize);
+            int  slice = int(uint(FrameCount) % uint(STBN_DEPTH));
+            uniform_noise = SampleBlueNoise(pixel, slice);
+        }
+        else
+        {
+            // Scroll the pattern each frame so it reads as animated grain rather
+            // than a fixed screen-space texture stuck on top of smooth gradients.
+            float2 ign_pos = input.uv * bb::ScreenSize + 5.588238 * float(uint(FrameCount) % 64u);
+
+            // The offsets are large and unrelated so the three land on genuinely
+            // different parts of the pattern; the outer multiply of ~53 inside the
+            // noise means even a small shift decorrelates them.
+            uniform_noise = float3(
+                InterleavedGradientNoise(ign_pos),
+                InterleavedGradientNoise(ign_pos + float2(113.0, 271.0)),
+                InterleavedGradientNoise(ign_pos + float2(571.0, 683.0)));
+        }
+
         dither = float3(
-            ReshapeUniformToTriangle(InterleavedGradientNoise(ign_pos)),
-            ReshapeUniformToTriangle(InterleavedGradientNoise(ign_pos + float2(113.0, 271.0))),
-            ReshapeUniformToTriangle(InterleavedGradientNoise(ign_pos + float2(571.0, 683.0)))) - 0.5;
+            ReshapeUniformToTriangle(uniform_noise.r),
+            ReshapeUniformToTriangle(uniform_noise.g),
+            ReshapeUniformToTriangle(uniform_noise.b)) - 0.5;
     }
 
     // Banding needs a stretch of near-constant colour to form, so the mask reads
@@ -1506,7 +1985,7 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
 
     [branch]
-    if (EnableDithering)
+    if (EnableDithering && !passthrough)
     {
         blended = saturate(blended + applied);
     }
@@ -1585,6 +2064,13 @@ technique DZ_PerceptualHDR
     {
         VertexShader = PostProcessVS;
         PixelShader  = PS_FinalCombine;
+        RenderTarget = TexCombined;
+    }
+
+    pass Present
+    {
+        VertexShader = PostProcessVS;
+        PixelShader  = PS_Present;
     }
 }
 
