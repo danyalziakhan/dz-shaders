@@ -163,8 +163,28 @@ uniform float Contrast_Shadow_Strength <
 uniform bool EnableDithering <
     ui_label = "Enable Dithering";
     ui_category = "General";
-    ui_tooltip = "Reduces visible 8-bit gradient banding by injecting subtle adaptive dithering only where banding is likely to occur.";
+    ui_tooltip = "Breaks up gradient banding by adding a triangular noise pattern just\n"
+                 "below the output's quantisation step, applied only where a band is\n"
+                 "likely to form. Each channel gets its own pattern so a coloured\n"
+                 "gradient cannot band in one channel while the others stay smooth.";
 > = true;
+
+uniform float DitherStrength <
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 3.0;
+    ui_step = 0.01;
+    ui_label = "Dither Strength";
+    ui_category = "General";
+    ui_tooltip = "Amplitude of the dither, measured in output quantisation steps.\n\n"
+                 "1.0 is the amount the maths asks for: a triangular spread of one\n"
+                 "step either side of the true colour, which is the least noise that\n"
+                 "fully breaks a band and holds the noise floor steady across the\n"
+                 "whole gradient.\n\n"
+                 "At 1.0 the grain is meant to be invisible on its own. Judge it by\n"
+                 "whether the bands are gone, not by whether you can see the noise.\n"
+                 "Raise it if you want the grain itself to read as film texture,\n"
+                 "lower it if a dark scene looks busy.";
+> = 1.0;
 
 uniform bool EnableAdaptation <
     ui_label = "Enable Eye Adaptation";
@@ -532,9 +552,10 @@ uniform bool Debug_Dithering <
 uniform float FrameTime < source = "frametime"; >;
 uniform int FrameCount < source = "framecount"; >;
 
-// Quantisation step of the output. Dither amplitude is one such step so it
-// matches the real bit depth of the swapchain (255 for 8-bit, 1023 for 10-bit)
-// instead of always assuming 8-bit.
+// Quantisation step of the output, taken from the real bit depth of the
+// swapchain (255 for 8-bit, 1023 for 10-bit) rather than always assuming 8-bit.
+// The dither is scaled in these units, so it stays matched to whatever the
+// display chain actually rounds to.
 #ifndef BUFFER_COLOR_BIT_DEPTH
     #define BUFFER_COLOR_BIT_DEPTH 8
 #endif
@@ -1173,6 +1194,42 @@ void PS_CalcAdapt(VS_OUTPUT input, out float2 adapt : SV_Target)
     adapt = float2(max(slow, 1e-5), max(fast, 1e-5));
 }
 
+// Interleaved Gradient Noise. Jimenez's constants, from the Advanced Warfare
+// post-processing work. Its values are well spread over any small neighbourhood
+// rather than merely random, which is the property that makes a dither pattern
+// disappear into a gradient instead of clumping into visible speckle. A stored
+// blue-noise mask scores better still, but that would mean shipping a texture
+// alongside the shader, and this comes close enough for a single quantisation step.
+float InterleavedGradientNoise(float2 pos)
+{
+    const float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return frac(magic.z * frac(dot(pos, magic.xy)));
+}
+
+// Reshape a uniform sample into a triangular one spanning [-0.5, 1.5], so the
+// pattern covers two quantisation steps with most of its weight near the middle.
+//
+// A flat distribution one step wide decorrelates the average quantisation error
+// but not its variance, so the amount of noise still rises and falls with the
+// signal and a band survives as a change in the texture of the grain rather than
+// as a hard edge. A triangular distribution two steps wide decorrelates the
+// variance too, which is what holds the noise floor steady right across a
+// gradient. That is the same reason audio mastering settles on triangular dither.
+//
+// This is a monotonic remap of one sample, not a sum of two. Summing is the usual
+// way to build a triangular distribution, but it averages two lookups together
+// and throws away the careful spatial arrangement that made the pattern good in
+// the first place, leaving something closer to plain white noise. Remapping keeps
+// each pixel's rank within the pattern exactly where it was.
+float ReshapeUniformToTriangle(float v)
+{
+    v = frac(v + 0.5);
+    float orig = v * 2.0 - 1.0;
+    // orig * rsqrt(|orig|) is sign(orig) * sqrt(|orig|); guard the singularity.
+    float rnd = (orig == 0.0) ? -1.0 : (orig * rsqrt(abs(orig)));
+    return rnd - sign(orig) + 0.5;
+}
+
 void PS_SaveParams(VS_OUTPUT input, out float4 save : SV_Target)
 {
     save = float4(float(LumaTextureSize), TriggerRadius, 0.5, 0.5);
@@ -1401,18 +1458,32 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
     blended = saturate(blended * (1.0 - contrast_shadow));
 
-    // Interleaved Gradient Noise (IGN)
-    float dither = 0.0;
+    // Triangular dither over interleaved gradient noise, one pattern per channel.
+    float3 dither = 0.0;
 
     if (EnableDithering || Debug_Dithering)
     {
-        // Scroll the IGN pattern each frame so it reads as animated grain rather
-        // than a fixed screen-space texture stuck on top of smooth gradients.
-        float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+        // Scroll the pattern each frame so it reads as animated grain rather than
+        // a fixed screen-space texture stuck on top of smooth gradients.
         float2 ign_pos = input.uv * bb::ScreenSize + 5.588238 * float(uint(FrameCount) % 64u);
-        dither = frac(magic.z * frac(dot(ign_pos, magic.xy)));
+
+        // Three separate lookups rather than one value shared across the channels.
+        // A shared value moves all three the same way, which only ever dithers
+        // luminance and leaves a coloured gradient to band in whichever channel
+        // crosses its step first. The offsets are large and unrelated so the three
+        // land on genuinely different parts of the pattern; the outer multiply of
+        // ~53 inside the noise means even a small shift decorrelates them.
+        dither = float3(
+            ReshapeUniformToTriangle(InterleavedGradientNoise(ign_pos)),
+            ReshapeUniformToTriangle(InterleavedGradientNoise(ign_pos + float2(113.0, 271.0))),
+            ReshapeUniformToTriangle(InterleavedGradientNoise(ign_pos + float2(571.0, 683.0)))) - 0.5;
     }
 
+    // Banding needs a stretch of near-constant colour to form, so the mask reads
+    // the screen-space slope and only lets the dither through where the image is
+    // nearly flat. It closes completely at a slope of 1/64 per pixel, roughly four
+    // 8-bit steps, which is far steeper than any gradient that could band, so
+    // texture and edges get nothing while the flat stretches get the full amount.
     float lum_dx = abs(ddx(GetLuminance(blended)));
     float lum_dy = abs(ddy(GetLuminance(blended)));
 
@@ -1421,20 +1492,23 @@ float3 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     float banding_mask = saturate(1.0 - gradient * 64.0);
     banding_mask *= banding_mask;
 
+    // dither spans +/-1 at this point, so strength 1.0 lands one quantisation step
+    // either side of the true colour.
+    float3 applied = dither * (banding_mask * DitherStrength / DitherSteps);
+
     if (Debug_Dithering)
     {
-        float applied =
-            banding_mask *
-            ((dither - 0.5) / DitherSteps);
-
-        return saturate(applied.xxx * DitherSteps + 0.5);
+        // Back up into step units and halved, so strength 1.0 fills the 0-1 range
+        // exactly. The mask is included, so flat areas show the pattern and
+        // detailed ones stay grey. Anything above 1.0 clips here, which is the
+        // honest reading of a dither driven past the step it is correcting.
+        return saturate(applied * DitherSteps * 0.5 + 0.5);
     }
 
     [branch]
     if (EnableDithering)
     {
-        blended += banding_mask * ((dither - 0.5) / DitherSteps);
-        blended = saturate(blended);
+        blended = saturate(blended + applied);
     }
 
     return blended;
