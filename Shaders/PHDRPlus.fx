@@ -1883,8 +1883,12 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
         // Combo entries run 8, 16, 24, 32.
         int taps = 8 * (clamp(DebandTaps, 0, 3) + 1);
 
-        int   slice  = int(uint(FrameCount) % uint(STBN_DEPTH));
-        float jitter = SampleBlueNoise(int2(input.uv * bb::ScreenSize), slice).r;
+        // Half a loop away and on a different channel from anything the dither
+        // will use on this pixel. Drawn from the same value, the disc rotation and
+        // the red dither would be a fixed function of each other, and whatever the
+        // debander left behind would land in step with the grain meant to hide it.
+        int   slice  = int((uint(FrameCount) + uint(STBN_DEPTH / 2)) % uint(STBN_DEPTH));
+        float jitter = SampleBlueNoise(int2(input.uv * bb::ScreenSize), slice).b;
 
         // Alpha holds how far this shader moved the pixel, in steps. That splits the
         // frame into the part the tone fusion reworked and the part it left close to
