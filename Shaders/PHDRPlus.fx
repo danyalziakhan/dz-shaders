@@ -192,15 +192,19 @@ uniform int DitherPattern <
     ui_label = "Dither Pattern";
     ui_category = "Dithering";
     ui_tooltip = "Which pattern the dither draws from.\n\n"
-                 "Gradient Noise is computed on the spot and needs no texture. It\n"
-                 "spreads its values well over a small neighbourhood, which is most\n"
-                 "of what a dither pattern needs.\n\n"
-                 "Blue Noise Mask reads a stored spatiotemporal mask instead. It is\n"
-                 "spread more evenly again, and its run of values at any one pixel is\n"
-                 "spread over time as well, so the grain settles rather than crawling\n"
-                 "when the camera holds still. Needs dz_stbn_512x256.png in the\n"
-                 "ReShade Textures folder.";
-> = 0;
+                 "Blue Noise Mask reads a stored spatiotemporal mask, built so its\n"
+                 "values are spread as evenly as they can be across the screen and,\n"
+                 "at any one pixel, across time as well. Clumping is what makes a\n"
+                 "dither pattern read as a pattern, and this one carries about a\n"
+                 "twentieth of the low-frequency energy the other does, so it hides\n"
+                 "better at the same amplitude and settles rather than crawling when\n"
+                 "the camera holds still. It needs dz_stbn_512x256.png in the ReShade\n"
+                 "Textures folder, which ships alongside the shader.\n\n"
+                 "Gradient Noise is computed on the spot and needs no texture. It is\n"
+                 "a good pattern in its own right and costs nothing to carry, so it\n"
+                 "is the one to fall back to if the mask is not where ReShade can\n"
+                 "find it.";
+> = 1;
 
 uniform bool EnableDeband <
     ui_label = "Enable Debanding";
