@@ -89,7 +89,7 @@ uniform float DynamicIntensity <
                  "amplifies compression noise and crushed detail.\n\n"
                  "0.0 = off, the effect holds full INTENSITY at any brightness.\n"
                  "1.0 = fully fade out below the Dark Scene Fade Threshold.";
-> = 0.5;
+> = 0.65;
 
 uniform float DarkFadeThreshold <
     ui_type = "slider";
@@ -102,7 +102,7 @@ uniform float DarkFadeThreshold <
                  "value, and the ramp is held to a minimum width so the transition\n"
                  "always stays gradual rather than snapping on.\n"
                  "Only relevant when Dark Scene Fade is above 0.";
-> = 0.15;
+> = 0.20;
 
 uniform float Radius <
     ui_type = "slider";
@@ -345,7 +345,7 @@ uniform float DebandSourceThreshold <
     ui_category = "Debanding: Source Image";
     ui_tooltip = "How far a pixel may sit from its surroundings and still be treated\n"
                  "as part of a flat area, in quantisation steps of the incoming frame.";
-> = 1.5;
+> = 1.65;
 
 uniform float DebandSourceRadius <
     ui_type = "slider";
@@ -355,7 +355,7 @@ uniform float DebandSourceRadius <
     ui_category = "Debanding: Source Image";
     ui_tooltip = "How far the first pass looks for the true value of a flat area, in\n"
                  "pixels. Later passes reach further.";
-> = 12.0;
+> = 13.0;
 
 uniform int DebandSourceIterations <
     ui_type = "slider";
@@ -377,7 +377,7 @@ uniform float DebandSourceDetail <
                  "Shader Effect side, because the texture at risk here is texture the\n"
                  "shader had no hand in.\n\n"
                  "Lower it further if detail is being flattened. 0 disables the guard.";
-> = 0.75;
+> = 0.85;
 
 uniform bool EnableAdaptation <
     ui_label = "Enable Eye Adaptation";
