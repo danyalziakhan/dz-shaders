@@ -93,14 +93,18 @@ uniform float DynamicIntensity <
 
 uniform float DarkFadeThreshold <
     ui_type = "slider";
-    ui_min = 0.01; ui_max = 0.30;
+    ui_min = 0.01; ui_max = 0.60;
     ui_step = 0.005;
     ui_label = "Dark Scene Fade Threshold";
     ui_category = "General";
     ui_tooltip = "Scene brightness at which the fade has fully released.\n"
                  "The effect ramps smoothly from the Adaptation Floor up to this\n"
                  "value, and the ramp is held to a minimum width so the transition\n"
-                 "always stays gradual rather than snapping on.\n"
+                 "always stays gradual rather than snapping on.\n\n"
+                 "Scene brightness is a geometric mean, so a night scene holding\n"
+                 "bright objects - moonlit stone, lamps, water - can measure well\n"
+                 "above what its darkness suggests, and needs a higher threshold\n"
+                 "than a cave does before the fade reaches it.\n\n"
                  "Only relevant when Dark Scene Fade is above 0.";
 > = 0.20;
 
@@ -507,6 +511,42 @@ uniform float TriggerRadius <
 // both the Brightening (Lift) and Darkening (Pull) groups below, so it lives in
 // its own category rather than inside either one.
 
+uniform bool ScaleTonalWithIntensity <
+    ui_label = "Scale Tonal Adaptation with INTENSITY";
+    ui_category = "Tonal Adaptation";
+    ui_tooltip = "If enabled, the Lift and Pull curves scale with the main INTENSITY\n"
+                 "slider, so INTENSITY 0 is a true no-op whatever the Lift and Pull\n"
+                 "sliders are set to.\n\n"
+                 "Unlike the split toning, the curves do NOT also scale with the Dark\n"
+                 "Scene Fade. The tints back off there because they are derived from\n"
+                 "high-frequency detail that is mostly noise in a dark scene; a tonal\n"
+                 "curve amplifies nothing, so it keeps its authority. That leaves you\n"
+                 "able to release the tone fusion from a night scene and still set how\n"
+                 "dark that scene reads.\n\n"
+                 "If disabled, the curves run at full authority regardless of\n"
+                 "INTENSITY, which is how earlier versions behaved.";
+> = true;
+
+uniform float TonalResponseStops <
+    ui_type = "slider";
+    ui_min = 0.5; ui_max = 4.0;
+    ui_step = 0.05;
+    ui_label = "Tonal Response Span";
+    ui_category = "Tonal Adaptation";
+    ui_tooltip = "How far a scene has to sit from the Tonal Neutral Point, in stops,\n"
+                 "before the Lift or Pull sliders reach full travel.\n\n"
+                 "Stops rather than plain brightness, because the scene measurement is\n"
+                 "a geometric mean: two scenes an equal ratio apart then get an equal\n"
+                 "response wherever they sit on the scale.\n\n"
+                 "Narrow values make the response snap on close to the pivot, so most\n"
+                 "scenes get near-full correction and differ little from each other.\n"
+                 "Wide values spread it out, so distance from neutral matters more and\n"
+                 "only extremes reach full travel.\n\n"
+                 "Widen this if one preset has to serve scenes of very different\n"
+                 "brightness and the bright ones come out over-corrected. Narrow it if\n"
+                 "the sliders feel inert in scenes sitting close to the pivot.";
+> = 1.5;
+
 uniform float TonalNeutralPoint <
     ui_type = "slider";
     ui_min = 0.10; ui_max = 0.70;
@@ -518,10 +558,14 @@ uniform float TonalNeutralPoint <
                  "the Tonal Brightening (Lift) sliders, scenes above it by the Tonal\n"
                  "Darkening (Pull) sliders. Governs both groups.\n\n"
                  "How hard either group pushes depends on how far the scene sits from\n"
-                 "this point, measured over a fixed range that is the same above and\n"
-                 "below it. Moving the pivot away from your usual scene brightness\n"
-                 "therefore strengthens the response as well as choosing which group\n"
-                 "runs.\n\n"
+                 "this point, counted in stops over a fixed span that is the same\n"
+                 "above and below it. Moving the pivot away from your usual scene\n"
+                 "brightness therefore strengthens the response as well as choosing\n"
+                 "which group runs.\n\n"
+                 "Because the distance is in stops rather than plain brightness, two\n"
+                 "scenes an equal ratio apart get an equal response wherever they sit\n"
+                 "on the scale, which is what lets one setting behave the same way\n"
+                 "across scenes of different brightness.\n\n"
                  "Direction comes from the sliders alone - they brighten above 1.0 and\n"
                  "darken below it. Raise the pivot with Lift set under 1.0 and a dark\n"
                  "scene gets darker, not brighter.\n\n"
@@ -692,6 +736,21 @@ uniform bool EnablePurkinje <
     ui_label = "Enable Purkinje Effect";
     ui_category = "Adaptive Color Volume";
     ui_tooltip = "Simulates scotopic vision shift in dark scenes.";
+> = true;
+
+uniform bool ScalePurkinjeWithIntensity <
+    ui_label = "Scale Purkinje with INTENSITY";
+    ui_category = "Adaptive Color Volume";
+    ui_tooltip = "If enabled, the scotopic shift scales with the main INTENSITY\n"
+                 "slider, so INTENSITY 0 is a true no-op rather than still shifting\n"
+                 "night colour.\n\n"
+                 "Like the tonal curves and unlike the split toning, this does not\n"
+                 "also scale with the Dark Scene Fade. The shift is a colour remap\n"
+                 "driven by pixel luminance and amplifies no high-frequency detail,\n"
+                 "and folding the fade in would cancel it in precisely the dark\n"
+                 "scenes it exists for.\n\n"
+                 "If disabled, the shift runs at full strength regardless of\n"
+                 "INTENSITY, which is how earlier versions behaved.";
 > = true;
 
 uniform float Purkinje_Red_Reduction <
@@ -1409,9 +1468,6 @@ void PS_GuidedFilterResult(VS_OUTPUT input, out float3 base_layers : SV_Target)
 // enough that it costs about a sixth of a second on a real transition.
 static const float FlickerRejectTime = 0.15;
 
-// How far a scene has to sit from the neutral point before the Lift or Pull
-// sliders reach full travel. Same distance on both sides and at any pivot.
-static const float TonalResponseRange = 0.35;
 
 void PS_CalcAdapt(VS_OUTPUT input, out float2 adapt : SV_Target)
 {
@@ -1595,14 +1651,31 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // Use 1.0 strength for static manual exposure, otherwise use the slider
     float current_strength = EnableAdaptation ? AdaptationStrength : 1.0;
 
-    // Split point between brightening and darkening. Distance from it is measured
-    // in plain brightness against a fixed range, not as a fraction of the space
-    // left on either side. That keeps the ramp the same width above and below the
-    // pivot and at every pivot setting, so moving the neutral point slides the
-    // response along rather than stretching it, and a Lift of 1.2 a tenth below
-    // neutral answers a Pull of 1.2 a tenth above it. smoothstep is flat at the
-    // pivot and flat again at full travel, so settled scenes hold steady and
-    // nothing kicks as the scene drifts across neutral.
+    // Fold INTENSITY and the Dark Scene Fade into the tonal curve, matching the
+    // split toning and the contrast halo. Without this the Lift and Pull sliders
+    // keep their full authority at INTENSITY 0, so the shader is not actually
+    // off when the slider says it is, and the Dark Scene Fade releases the tone
+    // fusion from a night scene while the tonal curve carries on reshaping it.
+    // INTENSITY alone, deliberately not effective_strength. The tints and the
+    // contrast halo scale by the faded value because both are derived from
+    // hf_detail, which in a dark scene is mostly compression noise the fade
+    // exists to stop amplifying. The tonal curve is a global remap of luma and
+    // amplifies nothing, so the same argument does not apply to it. Folding the
+    // fade in here would mean the Dark Scene Fade silently disables the Lift
+    // sliders in exactly the scenes they are there to shape, leaving no way to
+    // release the tone fusion from a night scene and still set its tonal
+    // balance.
+    if (ScaleTonalWithIntensity)
+        current_strength *= Strength;
+
+    // Split point between brightening and darkening. Distance from it is counted
+    // in stops against a fixed span, not as a fraction of the space
+    // left on either side. Counting in stops keeps the ramp the same
+    // width above and below the pivot and at every pivot setting: moving the
+    // neutral point slides the response along rather than stretching it, and a
+    // Lift of 1.2 one stop below neutral answers a Pull of 1.2 one stop above it.
+    // smoothstep is flat at the pivot and flat again at full travel, so settled
+    // scenes hold steady and nothing kicks as the scene drifts across neutral.
     //
     // Which branch can run is bounded by the Adaptation Floor and Ceiling, since
     // those cap what sm_adapt can report. A pivot outside that bracket leaves one
@@ -1614,7 +1687,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     if (sm_adapt < pivot)
     {
         float mid = LiftMidtones - 1.0, sh = LiftShadows - 1.0, hi = LiftHighlights - 1.0;
-        float t     = saturate((pivot - sm_adapt) / TonalResponseRange);
+        float t     = saturate(log2(pivot / max(sm_adapt, 1e-5)) / TonalResponseStops);
         float curve = current_strength * 0.5 * (t * t * (3.0 - 2.0 * t));
         curve = min(curve, MonotonicCurveLimit(mid, sh, hi, false));
         adp_delta = AdaptionDelta(adp_luma, mid, sh, hi) * curve;
@@ -1622,7 +1695,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     else
     {
         float mid = PullMidtones - 1.0, sh = PullShadows - 1.0, hi = PullHighlights - 1.0;
-        float u     = saturate((sm_adapt - pivot) / TonalResponseRange);
+        float u     = saturate(log2(max(sm_adapt, 1e-5) / pivot) / TonalResponseStops);
         float curve = current_strength * 0.5 * (u * u * (3.0 - 2.0 * u));
         curve = min(curve, MonotonicCurveLimit(mid, sh, hi, true));
         adp_delta = -AdaptionDelta(adp_luma, mid, sh, hi) * curve;
@@ -1648,6 +1721,13 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         float shadow_mask = 1.0 - smoothstep(0.0, 0.5, pixel_luma);
 
         float purkinje_strength = 1.0 - smoothstep(Purkinje_Fade_Start, purkinje_fade_end, scene_mean);
+
+        // INTENSITY, not effective_strength, for the same reason the tonal curve
+        // uses it: this is a luma-driven colour remap, not something derived from
+        // high-frequency detail, so the Dark Scene Fade has no noise argument to
+        // make against it and would only cancel it in the scenes it is for.
+        if (ScalePurkinjeWithIntensity)
+            purkinje_strength *= Strength;
 
         purkinje_mask = purkinje_strength * shadow_mask;
 
