@@ -36,6 +36,10 @@
 #endif
 
 #define BUFFER_PIXEL_SIZE   float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT)
+// Pixel settings are authored against this screen height and converted at
+// the point of use, so a preset covers the same fraction of any monitor.
+#define REFERENCE_HEIGHT 1080.0
+
 #define BUFFER_SCREEN_SIZE  float2(BUFFER_WIDTH, BUFFER_HEIGHT)
 #define BUFFER_ASPECT_RATIO (BUFFER_WIDTH * BUFFER_RCP_HEIGHT)
 
@@ -84,11 +88,8 @@ uniform float DynamicIntensity <
     ui_step = 0.01;
     ui_label = "Dark Scene Fade";
     ui_category = "General";
-    ui_tooltip = "Fades the tone-fusion out as the scene gets very dark, where there\n"
-                 "is little dynamic range left to recover and the effect mostly\n"
-                 "amplifies compression noise and crushed detail.\n\n"
-                 "0.0 = off, the effect holds full INTENSITY at any brightness.\n"
-                 "1.0 = fully fade out below the Dark Scene Fade Threshold.";
+    ui_tooltip = "Fades the tone fusion out in very dark scenes, where it mostly\n"
+                 "amplifies noise. 0 = off, 1 = full fade.";
 > = 0.65;
 
 uniform float DarkFadeThreshold <
@@ -97,15 +98,9 @@ uniform float DarkFadeThreshold <
     ui_step = 0.005;
     ui_label = "Dark Scene Fade Threshold";
     ui_category = "General";
-    ui_tooltip = "Scene brightness at which the fade has fully released.\n"
-                 "The effect ramps smoothly from the Adaptation Floor up to this\n"
-                 "value, and the ramp is held to a minimum width so the transition\n"
-                 "always stays gradual rather than snapping on.\n\n"
-                 "Scene brightness is a geometric mean, so a night scene holding\n"
-                 "bright objects - moonlit stone, lamps, water - can measure well\n"
-                 "above what its darkness suggests, and needs a higher threshold\n"
-                 "than a cave does before the fade reaches it.\n\n"
-                 "Only relevant when Dark Scene Fade is above 0.";
+    ui_tooltip = "Scene brightness at which the fade has fully released. Scene\n"
+                 "brightness is a geometric mean, so a night scene holding lamps or\n"
+                 "moonlit stone measures higher than it looks and needs more than a cave.";
 > = 0.20;
 
 uniform float Radius <
@@ -113,8 +108,11 @@ uniform float Radius <
     ui_min = 1.0; ui_max = 30.0;
     ui_label = "Smoothing Radius";
     ui_category = "General";
-    ui_tooltip = "Simulates the Lambda/Alpha of WLS.";
-> = 15.0;
+    ui_tooltip = "Window the base layers are smoothed over, which sets the scale of\n"
+                 "everything treated as local. In pixels at 1080p, rescaled to the\n"
+                 "running resolution. Wider spreads the shading gradient beside bright\n"
+                 "objects until it reads as lighting instead of an outline.";
+> = 13.5;
 
 uniform float Epsilon <
     ui_type = "slider";
@@ -122,6 +120,17 @@ uniform float Epsilon <
     ui_label = "Edge Sensitivity";
     ui_category = "General";
 > = 0.001;
+
+uniform float DetailLimit <
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 4.0;
+    ui_step = 0.05;
+    ui_label = "Detail Limit";
+    ui_category = "General";
+    ui_tooltip = "Ceiling on the local detail term, in stops, on the darkening side\n"
+                 "only. Buys back the dark rim around bright objects for a little\n"
+                 "detail. 0 disables it.";
+> = 0.0;
 
 uniform float Contrast_Micro <
     ui_label = "Micro Contrast Boost";
@@ -142,13 +151,8 @@ uniform float Contrast_Medium <
 uniform float Contrast_Macro <
     ui_label = "Macro Contrast Boost";
     ui_category = "General";
-    ui_tooltip = "Adds large-scale depth contrast back into the image.\n\n"
-                 "Unlike the Micro and Medium sliders this one starts at 0 rather\n"
-                 "than centring there. The tone mapping already divides the coarse\n"
-                 "structure out, so 0 is the flat end of the range and raising the\n"
-                 "slider restores large-scale depth. There is nothing below 0 to\n"
-                 "suppress: negative gain would invert the macro band instead of\n"
-                 "flattening it, swapping which side of a large edge reads brighter.";
+    ui_tooltip = "Large-scale depth and scene separation. Starts at 0 rather than\n"
+                 "centring there, unlike the other two bands.";
     ui_type = "slider";
     ui_min = 0.0; ui_max = 1.0; ui_step = 0.01;
 > = 0.0;
@@ -156,10 +160,9 @@ uniform float Contrast_Macro <
 uniform float Contrast_Shadow_Strength <
     ui_label = "Contrast Shadow Strength";
     ui_category = "General";
-    ui_tooltip = "Adjusts the intensity of the microscopic dark halo around bright\n"
-                 "highlights. Higher values increase edge contrast.\n\n"
-                 "Read as a fraction of INTENSITY, so the halo fades out with the\n"
-                 "main effect and with the Dark Scene Fade.";
+    ui_tooltip = "Depth of the dark halo on the shadow side of bright edges, as a\n"
+                 "fraction of INTENSITY. This is the etched-outline look, so lower it\n"
+                 "if objects look drawn on.";
     ui_type = "drag";
     ui_min = 0.0; ui_max = 2.0; ui_step = 0.001;
 > = 1.0;
@@ -167,10 +170,7 @@ uniform float Contrast_Shadow_Strength <
 uniform bool EnableDithering <
     ui_label = "Enable Dithering";
     ui_category = "Dithering";
-    ui_tooltip = "Breaks up gradient banding by adding a triangular noise pattern just\n"
-                 "below the output's quantisation step, applied only where a band is\n"
-                 "likely to form. Each channel gets its own pattern so a coloured\n"
-                 "gradient cannot band in one channel while the others stay smooth.";
+    ui_tooltip = "Adds a sub-level noise pattern so gradients quantise smoothly.";
 > = true;
 
 uniform float DitherStrength <
@@ -179,15 +179,8 @@ uniform float DitherStrength <
     ui_step = 0.01;
     ui_label = "Dither Strength";
     ui_category = "Dithering";
-    ui_tooltip = "Amplitude of the dither, measured in output quantisation steps.\n\n"
-                 "1.0 is the amount the maths asks for: a triangular spread of one\n"
-                 "step either side of the true colour, which is the least noise that\n"
-                 "fully breaks a band and holds the noise floor steady across the\n"
-                 "whole gradient.\n\n"
-                 "At 1.0 the grain is meant to be invisible on its own. Judge it by\n"
-                 "whether the bands are gone, not by whether you can see the noise.\n"
-                 "Raise it if you want the grain itself to read as film texture,\n"
-                 "lower it if a dark scene looks busy.";
+    ui_tooltip = "Dither amplitude in quantisation steps. 1.0 is what the maths asks\n"
+                 "for; raise it for visible grain.";
 > = 1.0;
 
 uniform int DitherPattern <
@@ -195,30 +188,17 @@ uniform int DitherPattern <
     ui_items = "Gradient Noise\0Blue Noise Mask\0";
     ui_label = "Dither Pattern";
     ui_category = "Dithering";
-    ui_tooltip = "Which pattern the dither draws from.\n\n"
-                 "Blue Noise Mask reads a stored spatiotemporal mask, built so its\n"
-                 "values are spread as evenly as they can be across the screen and,\n"
-                 "at any one pixel, across time as well. Clumping is what makes a\n"
-                 "dither pattern read as a pattern, and this one carries about a\n"
-                 "twentieth of the low-frequency energy the other does, so it hides\n"
-                 "better at the same amplitude and settles rather than crawling when\n"
-                 "the camera holds still. It needs dz_stbn_512x256.png in the ReShade\n"
-                 "Textures folder, which ships alongside the shader.\n\n"
-                 "Gradient Noise is computed on the spot and needs no texture. It is\n"
-                 "a good pattern in its own right and costs nothing to carry, so it\n"
-                 "is the one to fall back to if the mask is not where ReShade can\n"
-                 "find it.";
+    ui_tooltip = "Blue Noise Mask needs dz_stbn_512x256.png in the ReShade Textures\n"
+                 "folder and hides better at the same amplitude. Gradient Noise is\n"
+                 "computed on the spot and is the fallback.";
 > = 1;
 
 uniform bool EnableDeband <
     ui_label = "Enable Debanding";
     ui_category = "Debanding";
     ui_category_closed = true;
-    ui_tooltip = "Rebuilds gradients that have been quantised into visible steps.\n\n"
-                 "Dithering and debanding solve different halves of the problem.\n"
-                 "Dithering stops a smooth gradient from banding on the way to the\n"
-                 "display. Debanding repairs a gradient that is already stepped, which\n"
-                 "no amount of dithering can recover.";
+    ui_tooltip = "Rebuilds gradients already quantised into visible steps. Dithering\n"
+                 "stops banding forming; this repairs banding that is already there.";
 > = true;
 
 uniform float DebandMaxCorrection <
@@ -227,16 +207,9 @@ uniform float DebandMaxCorrection <
     ui_step = 0.1;
     ui_label = "Deband Correction Limit";
     ui_category = "Debanding";
-    ui_tooltip = "The furthest the debander may move any pixel, in output quantisation\n"
-                 "steps.\n\n"
-                 "This is what keeps a repair from turning into a blur. A band is a\n"
-                 "step or two tall, so that is the size of correction it needs; a much\n"
-                 "larger one is not repairing a step, it is averaging away contrast\n"
-                 "that belongs in the picture. Capping it means the debander can flatten\n"
-                 "the step without eating into the local contrast this shader just put\n"
-                 "there, however wide a radius it is searching over.\n\n"
-                 "The limit eases in rather than clipping, so corrections below half of\n"
-                 "it are untouched and larger ones bend toward it.";
+    ui_tooltip = "Furthest the debander may move a pixel, in quantisation steps. A band\n"
+                 "is a step or two tall, so a much larger correction is averaging away\n"
+                 "contrast rather than repairing a step.";
 > = 2.0;
 
 uniform float DebandSplit <
@@ -245,14 +218,9 @@ uniform float DebandSplit <
     ui_step = 0.05;
     ui_label = "Deband Split Point";
     ui_category = "Debanding";
-    ui_tooltip = "How far this shader has to have moved a pixel before that pixel is\n"
-                 "handed to the Shader Effect settings rather than the Source Image\n"
-                 "ones, in quantisation steps.\n\n"
-                 "The two sets of settings are not alternatives. Both run every frame,\n"
-                 "each on its own part of the picture, and this is the line between\n"
-                 "them. Pixels the shader reworked get one treatment, pixels it left\n"
-                 "close to how they arrived get the other, and the handover is gradual\n"
-                 "rather than a hard edge.";
+    ui_tooltip = "How far this shader must have moved a pixel before it is handed to the\n"
+                 "Shader Effect settings instead of the Source Image ones, in\n"
+                 "quantisation steps. Both run every frame; this is the line between them.";
 > = 1.0;
 
 uniform int DebandTaps <
@@ -263,13 +231,9 @@ uniform int DebandTaps <
                "32 samples\0";
     ui_label = "Deband Samples";
     ui_category = "Debanding";
-    ui_tooltip = "Samples taken per pass, spread evenly over a disc. Shared by both\n"
-                 "sets of settings, since it trades cost against how well the\n"
-                 "neighbourhood is measured rather than changing the look.\n\n"
-                 "The decision to flatten a pixel rests partly on how much its\n"
-                 "neighbourhood scatters, and a handful of samples estimates that so\n"
-                 "poorly that the threshold has to be left loose enough to swallow\n"
-                 "real detail. Raise this before raising either threshold.";
+    ui_tooltip = "Samples per pass, spread over a disc. Raise this before raising either\n"
+                 "threshold, since a loose threshold is usually a badly measured\n"
+                 "neighbourhood.";
 > = 1;
 
 // ---- Debanding: the part of the frame this shader reworked ----
@@ -277,9 +241,7 @@ uniform int DebandTaps <
 uniform bool EnableDebandEffect <
     ui_label = "Enable";
     ui_category = "Debanding: Shader Effect";
-    ui_tooltip = "Debanding for pixels this shader moved by more than the split point.\n"
-                 "Steps here are ones the tone fusion opened up or widened, so this\n"
-                 "side can afford to work harder than the other.";
+    ui_tooltip = "Deband this shader's output.";
 > = true;
 
 uniform float DebandEffectThreshold <
@@ -288,8 +250,7 @@ uniform float DebandEffectThreshold <
     ui_step = 0.1;
     ui_label = "Threshold";
     ui_category = "Debanding: Shader Effect";
-    ui_tooltip = "How far a pixel may sit from its surroundings and still be treated\n"
-                 "as part of a flat area, in quantisation steps of the incoming frame.";
+    ui_tooltip = "How flat an area must be to count as a band, in quantisation steps.";
 > = 1.75;
 
 uniform float DebandEffectRadius <
@@ -299,17 +260,16 @@ uniform float DebandEffectRadius <
     ui_label = "Radius";
     ui_category = "Debanding: Shader Effect";
     ui_tooltip = "How far the first pass looks for the true value of a flat area, in\n"
-                 "pixels. Later passes reach further. It wants to be wider than the\n"
-                 "bands themselves, or every sample lands inside the same step.";
-> = 14.0;
+                 "pixels at 1080p. Later passes reach further. Wants to be wider than\n"
+                 "the bands themselves.";
+> = 13.0;
 
 uniform int DebandEffectIterations <
     ui_type = "slider";
     ui_min = 1; ui_max = 4;
     ui_label = "Passes";
     ui_category = "Debanding: Shader Effect";
-    ui_tooltip = "How many times to repeat, each reaching further out and judging more\n"
-                 "strictly than the last.";
+    ui_tooltip = "How many passes, each reaching further and judging more strictly.";
 > = 2;
 
 uniform float DebandEffectDetail <
@@ -318,16 +278,9 @@ uniform float DebandEffectDetail <
     ui_step = 0.05;
     ui_label = "Detail Guard";
     ui_category = "Debanding: Shader Effect";
-    ui_tooltip = "How much pixel-to-pixel variation marks an area as real texture and\n"
-                 "puts it out of reach, in quantisation steps.\n\n"
-                 "This is the test that separates a band from fine detail. Inside a\n"
-                 "band, neighbouring pixels are identical: that is what makes it a\n"
-                 "band. Texture varies from one pixel to the next however faint it is\n"
-                 "overall. Judging by how far apart values are cannot tell the two\n"
-                 "apart, because quiet texture and a band both look quiet, which is\n"
-                 "how debanders end up sanding off detail.\n\n"
-                 "Lower it if texture is being flattened. Raise it if bands with a\n"
-                 "little noise on them are being left alone. 0 disables the guard.";
+    ui_tooltip = "How much pixel-to-pixel variation marks an area as texture and puts it\n"
+                 "out of reach. Lower if texture is flattened, raise if noisy bands\n"
+                 "survive. 0 disables the guard.";
 > = 1.0;
 
 // ---- Debanding: the part of the frame this shader left close to as it found it ----
@@ -335,10 +288,7 @@ uniform float DebandEffectDetail <
 uniform bool EnableDebandSource <
     ui_label = "Enable";
     ui_category = "Debanding: Source Image";
-    ui_tooltip = "Debanding for pixels this shader barely moved. Any banding here was\n"
-                 "in the frame before the shader saw it, and so was any texture, so\n"
-                 "this side is set gently by default: the detail it could damage is\n"
-                 "detail that looked correct before the shader was ever enabled.";
+    ui_tooltip = "Deband the game's own frame, before the effect runs.";
 > = true;
 
 uniform float DebandSourceThreshold <
@@ -347,8 +297,7 @@ uniform float DebandSourceThreshold <
     ui_step = 0.1;
     ui_label = "Threshold";
     ui_category = "Debanding: Source Image";
-    ui_tooltip = "How far a pixel may sit from its surroundings and still be treated\n"
-                 "as part of a flat area, in quantisation steps of the incoming frame.";
+    ui_tooltip = "How flat an area must be to count as a band, in quantisation steps.";
 > = 1.65;
 
 uniform float DebandSourceRadius <
@@ -358,16 +307,15 @@ uniform float DebandSourceRadius <
     ui_label = "Radius";
     ui_category = "Debanding: Source Image";
     ui_tooltip = "How far the first pass looks for the true value of a flat area, in\n"
-                 "pixels. Later passes reach further.";
-> = 13.0;
+                 "pixels at 1080p. Later passes reach further.";
+> = 12.0;
 
 uniform int DebandSourceIterations <
     ui_type = "slider";
     ui_min = 1; ui_max = 4;
     ui_label = "Passes";
     ui_category = "Debanding: Source Image";
-    ui_tooltip = "How many times to repeat, each reaching further out and judging more\n"
-                 "strictly than the last.";
+    ui_tooltip = "How many passes, each reaching further and judging more strictly.";
 > = 1;
 
 uniform float DebandSourceDetail <
@@ -376,11 +324,8 @@ uniform float DebandSourceDetail <
     ui_step = 0.05;
     ui_label = "Detail Guard";
     ui_category = "Debanding: Source Image";
-    ui_tooltip = "How much pixel-to-pixel variation marks an area as real texture and\n"
-                 "puts it out of reach, in quantisation steps. Set lower than the\n"
-                 "Shader Effect side, because the texture at risk here is texture the\n"
-                 "shader had no hand in.\n\n"
-                 "Lower it further if detail is being flattened. 0 disables the guard.";
+    ui_tooltip = "How much pixel-to-pixel variation marks an area as texture and puts it\n"
+                 "out of reach. 0 disables the guard.";
 > = 0.85;
 
 uniform bool EnableAdaptation <
@@ -395,9 +340,7 @@ uniform float AdaptationTime <
     ui_min = 0.0; ui_max = 1.0;
     ui_label = "Eye Adaptation Speed";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "Time in seconds for the eye to adjust when a scene gets BRIGHTER\n"
-                 "(light adaptation). Higher = Smoother/Slower.\n"
-                 "Darkening uses this value scaled by the Dark Adaptation Multiplier.";
+    ui_tooltip = "Seconds for the eye to adjust to a brightness change.";
 > = 0.5;
 
 uniform float DarkAdaptationMult <
@@ -406,10 +349,7 @@ uniform float DarkAdaptationMult <
     ui_step = 0.1;
     ui_label = "Dark Adaptation Multiplier";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "The human eye brightens quickly but dark-adapts much more slowly.\n"
-                 "When the scene gets DARKER, adaptation time is multiplied by this\n"
-                 "factor, so the effect eases into shadow more gradually.\n\n"
-                 "1.0 = symmetric. 2-4 is realistic.";
+    ui_tooltip = "How much slower the eye adapts to darkness than to light.";
 > = 2.5;
 
 uniform float AdaptMin <
@@ -418,12 +358,9 @@ uniform float AdaptMin <
     ui_step = 0.001;
     ui_label = "Adaptation Floor";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "Lower clamp on the measured scene brightness. Raising this stops a\n"
-                 "near-black frame (e.g. a fade-out or a wall of shadow) from dragging\n"
-                 "the exposure all the way to the floor and blowing out the next shot.\n\n"
-                 "Raise it past the Tonal Neutral Point and no scene can ever measure\n"
-                 "dark enough to count as below average, which leaves the Tonal\n"
-                 "Brightening (Lift) sliders with nothing to act on.";
+    ui_tooltip = "Lower clamp on measured scene brightness, so a near-black frame does\n"
+                 "not drag the exposure to the floor. Raise it past the Tonal Neutral\n"
+                 "Point and the Lift sliders have nothing to act on.";
 > = 0.03;
 
 uniform float AdaptMax <
@@ -432,12 +369,9 @@ uniform float AdaptMax <
     ui_step = 0.001;
     ui_label = "Adaptation Ceiling";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "Upper clamp on the measured scene brightness. Lowering this stops a\n"
-                 "white flash (explosion, muzzle flare) from railing the exposure and\n"
-                 "crushing the scene dark for a moment afterwards.\n\n"
-                 "Lower it below the Tonal Neutral Point and no scene can ever measure\n"
-                 "bright enough to count as above average, which leaves the Tonal\n"
-                 "Darkening (Pull) sliders with nothing to act on.";
+    ui_tooltip = "Upper clamp on measured scene brightness, so a white flash does not\n"
+                 "rail the exposure. Lower it past the Tonal Neutral Point and the Pull\n"
+                 "sliders have nothing to act on.";
 > = 0.85;
 
 uniform float ManualExposure <
@@ -454,11 +388,8 @@ uniform float AdaptationStrength <
     ui_step = 0.01;
     ui_label = "Eye Adaptation Strength";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "How strongly eye adaptation shifts the exposure.\n"
-                 "Only active when Enable Eye Adaptation is on.\n\n"
-                 "1.0 = full adaptation correction (default behavior).\n"
-                 "0.0 = adaptation is measured but has no effect on the image.\n"
-                 "0.5 = half the normal correction is applied.";
+    ui_tooltip = "How strongly eye adaptation shifts the exposure. 0 measures but does\n"
+                 "not apply.";
 > = 1.0;
 
 // ---- Core Eye Adaptation Controls ----
@@ -467,17 +398,9 @@ uniform int LumaTextureSize <
     ui_type = "combo";
     ui_label = "Luma Texture Size";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "Resolution of the internal luminance texture used for eye adaptation.\n\n"
-                 "Smaller textures are cheaper and their mip chains collapse to 1x1\n"
-                 "sooner, so a given Trigger Radius covers a wider screen area:\n"
-                 "  Full Resolution : mip chain matches screen res (up to mip 11)\n"
-                 "  512 x 512       : 10 mip levels, valid indices 0-9\n"
-                 "  256 x 256       :  9 mip levels, valid indices 0-8\n"
-                 "  128 x 128       :  8 mip levels, valid indices 0-7\n"
-                 "   64 x 64        :  7 mip levels, valid indices 0-6\n\n"
-                 "Values of Trigger Radius beyond the valid chain are GPU-clamped\n"
-                 "to the last level (1x1 pixel = whole-image average). This matches\n"
-                 "the behavior described in MipScope.";
+    ui_tooltip = "Resolution of the internal luminance texture. Smaller is cheaper and\n"
+                 "its mip chain collapses sooner, so a given Trigger Radius covers more\n"
+                 "of the screen.";
     ui_items = "Full Resolution\0"
                "512 x 512\0"
                "256 x 256\0"
@@ -491,19 +414,9 @@ uniform float TriggerRadius <
     ui_step = 0.1;
     ui_label = "Adaptation Trigger Radius";
     ui_category = "Eye Adaptation";
-    ui_tooltip = "Controls which mip level of the luminance texture is sampled to\n"
-                 "compute average scene brightness for eye adaptation.\n\n"
-                 "Lower values sample a smaller, more central area of the image.\n"
-                 "Higher values pull the sample toward a whole-image average.\n"
-                 "At maximum (12), any texture size will have reached its 1x1 mip\n"
-                 "and will return the average luminance of the entire frame.\n\n"
-                 "Valid top of chain per texture size:\n"
-                 "  Full Res 1080p : mip 10   Full Res 1440p : mip 11\n"
-                 "  Full Res 4K    : mip 12\n"
-                 "  512 x 512      : mip  9   256 x 256      : mip  8\n"
-                 "  128 x 128      : mip  7    64 x 64       : mip  6\n\n"
-                 "Values beyond the preset's valid range are GPU-clamped to the\n"
-                 "last valid level (same behavior as real adaptation shaders).";
+    ui_tooltip = "Mip level of the luminance texture sampled for average scene\n"
+                 "brightness. Higher covers more of the screen, 12 is the whole frame.\n"
+                 "Authored at 1080p and shifted to the running resolution.";
 > = 8.0;
 
 // ---- Tonal Adaptation - Shared ----
@@ -511,40 +424,14 @@ uniform float TriggerRadius <
 // both the Brightening (Lift) and Darkening (Pull) groups below, so it lives in
 // its own category rather than inside either one.
 
-uniform bool ScaleTonalWithIntensity <
-    ui_label = "Scale Tonal Adaptation with INTENSITY";
-    ui_category = "Tonal Adaptation";
-    ui_tooltip = "If enabled, the Lift and Pull curves scale with the main INTENSITY\n"
-                 "slider, so INTENSITY 0 is a true no-op whatever the Lift and Pull\n"
-                 "sliders are set to.\n\n"
-                 "Unlike the split toning, the curves do NOT also scale with the Dark\n"
-                 "Scene Fade. The tints back off there because they are derived from\n"
-                 "high-frequency detail that is mostly noise in a dark scene; a tonal\n"
-                 "curve amplifies nothing, so it keeps its authority. That leaves you\n"
-                 "able to release the tone fusion from a night scene and still set how\n"
-                 "dark that scene reads.\n\n"
-                 "If disabled, the curves run at full authority regardless of\n"
-                 "INTENSITY, which is how earlier versions behaved.";
-> = true;
-
 uniform float TonalResponseStops <
     ui_type = "slider";
     ui_min = 0.5; ui_max = 4.0;
     ui_step = 0.05;
     ui_label = "Tonal Response Span";
     ui_category = "Tonal Adaptation";
-    ui_tooltip = "How far a scene has to sit from the Tonal Neutral Point, in stops,\n"
-                 "before the Lift or Pull sliders reach full travel.\n\n"
-                 "Stops rather than plain brightness, because the scene measurement is\n"
-                 "a geometric mean: two scenes an equal ratio apart then get an equal\n"
-                 "response wherever they sit on the scale.\n\n"
-                 "Narrow values make the response snap on close to the pivot, so most\n"
-                 "scenes get near-full correction and differ little from each other.\n"
-                 "Wide values spread it out, so distance from neutral matters more and\n"
-                 "only extremes reach full travel.\n\n"
-                 "Widen this if one preset has to serve scenes of very different\n"
-                 "brightness and the bright ones come out over-corrected. Narrow it if\n"
-                 "the sliders feel inert in scenes sitting close to the pivot.";
+    ui_tooltip = "How far a scene must sit from the Tonal Neutral Point, in stops,\n"
+                 "before Lift or Pull reaches full travel.";
 > = 1.5;
 
 uniform float TonalNeutralPoint <
@@ -553,30 +440,9 @@ uniform float TonalNeutralPoint <
     ui_step = 0.01;
     ui_label = "Tonal Neutral Point";
     ui_category = "Tonal Adaptation";
-    ui_tooltip = "The scene brightness treated as 'average', where neither the Lift nor\n"
-                 "the Pull sliders do anything. Scenes measuring below it are handled by\n"
-                 "the Tonal Brightening (Lift) sliders, scenes above it by the Tonal\n"
-                 "Darkening (Pull) sliders. Governs both groups.\n\n"
-                 "How hard either group pushes depends on how far the scene sits from\n"
-                 "this point, counted in stops over a fixed span that is the same\n"
-                 "above and below it. Moving the pivot away from your usual scene\n"
-                 "brightness therefore strengthens the response as well as choosing\n"
-                 "which group runs.\n\n"
-                 "Because the distance is in stops rather than plain brightness, two\n"
-                 "scenes an equal ratio apart get an equal response wherever they sit\n"
-                 "on the scale, which is what lets one setting behave the same way\n"
-                 "across scenes of different brightness.\n\n"
-                 "Direction comes from the sliders alone - they brighten above 1.0 and\n"
-                 "darken below it. Raise the pivot with Lift set under 1.0 and a dark\n"
-                 "scene gets darker, not brighter.\n\n"
-                 "Scene brightness is a geometric mean in gamma space, which typically\n"
-                 "reads well below 0.5 even in bright outdoor scenes, so the pivot sits\n"
-                 "at 0.30 to keep the Pull sliders reachable.\n\n"
-                 "Keep it inside the Adaptation Floor and Ceiling. Sitting close to\n"
-                 "either one leaves a scene little room to travel on that side, so the\n"
-                 "group it feeds reaches only part of its travel and needs a higher\n"
-                 "slider setting to push as hard. Past either one, that group stops\n"
-                 "acting at all, since no scene can measure on that side of the pivot.";
+    ui_tooltip = "Scene brightness treated as average. Darker scenes are handled by the\n"
+                 "Lift sliders, brighter ones by Pull. Keep it inside the Adaptation\n"
+                 "Floor and Ceiling or one group stops acting.";
 > = 0.30;
 
 // ---- Tonal Adaptation - Brightening ----
@@ -586,39 +452,33 @@ uniform float TonalNeutralPoint <
 
 uniform float LiftHighlights <
     ui_type = "slider";
-    ui_min = 0.5; ui_max = 1.5;
+    ui_min = 0.25; ui_max = 2.0;
     ui_step = 0.01;
     ui_label = "Highlight Lift";
     ui_category = "Tonal Brightening";
     ui_category_closed = true;
-    ui_tooltip = "Controls highlight recovery strength when the scene is darker than average.\n\n"
-                 "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
-                 "> 1.0 = amplifies highlight brightening in dark scene conditions.\n"
-                 "< 1.0 = suppresses highlight brightening, allowing highlights to stay darker.";
+    ui_tooltip = "Highlight recovery when the scene is below the Tonal Neutral Point.\n"
+                 "1.0 = neutral.";
 > = 1.0;
 
 uniform float LiftMidtones <
     ui_type = "slider";
-    ui_min = 0.5; ui_max = 1.5;
+    ui_min = 0.25; ui_max = 2.0;
     ui_step = 0.01;
     ui_label = "Midtone Lift";
     ui_category = "Tonal Brightening";
-    ui_tooltip = "Controls midtone recovery strength when the scene is darker than average.\n\n"
-                 "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
-                 "> 1.0 = amplifies midtone brightening in dark scene conditions.\n"
-                 "< 1.0 = suppresses midtone brightening.";
+    ui_tooltip = "Midtone recovery when the scene is below the Tonal Neutral Point.\n"
+                 "1.0 = neutral.";
 > = 1.0;
 
 uniform float LiftShadows <
     ui_type = "slider";
-    ui_min = 0.5; ui_max = 1.5;
+    ui_min = 0.25; ui_max = 2.0;
     ui_step = 0.01;
     ui_label = "Shadow Lift";
     ui_category = "Tonal Brightening";
-    ui_tooltip = "Controls shadow recovery strength when the scene is darker than average.\n\n"
-                 "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
-                 "> 1.0 = amplifies shadow brightening in dark scene conditions.\n"
-                 "< 1.0 = suppresses shadow brightening, preserving deep blacks.";
+    ui_tooltip = "Shadow recovery when the scene is below the Tonal Neutral Point.\n"
+                 "Lower keeps blacks deeper.";
 > = 1.0;
 
 // ---- Tonal Adaptation - Darkening ----
@@ -627,39 +487,33 @@ uniform float LiftShadows <
 
 uniform float PullHighlights <
     ui_type = "slider";
-    ui_min = 0.5; ui_max = 1.5;
+    ui_min = 0.25; ui_max = 2.0;
     ui_step = 0.01;
     ui_label = "Highlight Pull";
     ui_category = "Tonal Darkening";
     ui_category_closed = true;
-    ui_tooltip = "Controls highlight suppression strength when the scene is brighter than average.\n\n"
-                 "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
-                 "> 1.0 = amplifies highlight darkening in bright scene conditions.\n"
-                 "< 1.0 = suppresses highlight darkening.";
+    ui_tooltip = "Highlight suppression when the scene is above the Tonal Neutral Point.\n"
+                 "1.0 = neutral.";
 > = 1.0;
 
 uniform float PullMidtones <
     ui_type = "slider";
-    ui_min = 0.5; ui_max = 1.5;
+    ui_min = 0.25; ui_max = 2.0;
     ui_step = 0.01;
     ui_label = "Midtone Pull";
     ui_category = "Tonal Darkening";
-    ui_tooltip = "Controls midtone suppression strength when the scene is brighter than average.\n\n"
-                 "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
-                 "> 1.0 = amplifies midtone darkening in bright scene conditions.\n"
-                 "< 1.0 = suppresses midtone darkening.";
+    ui_tooltip = "Midtone suppression when the scene is above the Tonal Neutral Point.\n"
+                 "1.0 = neutral.";
 > = 1.0;
 
 uniform float PullShadows <
     ui_type = "slider";
-    ui_min = 0.5; ui_max = 1.5;
+    ui_min = 0.25; ui_max = 2.0;
     ui_step = 0.01;
     ui_label = "Shadow Pull";
     ui_category = "Tonal Darkening";
-    ui_tooltip = "Controls shadow suppression strength when the scene is brighter than average.\n\n"
-                 "1.0 = neutral, identical to the original PHDR behavior (no tonal delta).\n"
-                 "> 1.0 = amplifies shadow darkening in bright scene conditions.\n"
-                 "< 1.0 = suppresses shadow darkening.";
+    ui_tooltip = "Shadow suppression when the scene is above the Tonal Neutral Point.\n"
+                 "1.0 = neutral.";
 > = 1.0;
 
 // ---- Adaptive Color Volume / Split Toning ----
@@ -671,20 +525,12 @@ uniform bool EnableSplitToning <
     ui_tooltip = "Toggles adaptive highlight and shadow tinting.";
 > = true;
 
-uniform bool ScaleTintsWithIntensity <
-    ui_label = "Scale Tints with INTENSITY";
-    ui_category = "Adaptive Color Volume";
-    ui_tooltip = "If enabled, split toning strength automatically scales with the main INTENSITY slider.\n"
-                 "If disabled, split toning operates completely independently of the INTENSITY slider.";
-> = true;
-
 uniform float HighlightTintTone <
     ui_type = "slider";
     ui_min = 0.0; ui_max = 1.0;
     ui_label = "Highlight Tint Tone";
     ui_category = "Adaptive Color Volume";
-    ui_tooltip = "0.0 = Golden Yellow | 0.5 = Warm Orange (Default) | 1.0 = Deep Amber\n"
-                 "Shifts the hue of the highlights tint without breaking realistic bounds.";
+    ui_tooltip = "Hue of the warm highlight tint. 0 = golden, 1 = deep amber.";
 > = 0.5;
 
 uniform float ShadowTintTone <
@@ -692,8 +538,7 @@ uniform float ShadowTintTone <
     ui_min = 0.0; ui_max = 1.0;
     ui_label = "Shadow Tint Tone";
     ui_category = "Adaptive Color Volume";
-    ui_tooltip = "0.0 = Cyan/Teal | 0.5 = Cool Blue (Default) | 1.0 = Deep Indigo\n"
-                 "Shifts the hue of the shadows tint without breaking realistic bounds.";
+    ui_tooltip = "Hue of the cool shadow tint. 0 = teal, 1 = deep indigo.";
 > = 0.5;
 
 uniform float TintOpacityH <
@@ -716,9 +561,8 @@ uniform float TintThresholdH <
     ui_step = 0.05;
     ui_label = "Highlight Contrast Threshold";
     ui_category = "Adaptive Color Volume";
-    ui_tooltip = "How much brighter a pixel must be relative to the scene average to receive the warm tint.\n"
-                 "1.0 = Triggers instantly on any value above average.\n"
-                 "1.25 = Requires a pixel to be at least 25% brighter than the environment baseline.";
+    ui_tooltip = "How much brighter than the scene average a pixel must be before the\n"
+                 "warm tint applies.";
 > = 1.25;
 
 uniform float TintThresholdS <
@@ -727,30 +571,14 @@ uniform float TintThresholdS <
     ui_step = 0.05;
     ui_label = "Shadow Contrast Threshold";
     ui_category = "Adaptive Color Volume";
-    ui_tooltip = "How much darker a pixel must be relative to the scene average to receive the cool tint.\n"
-                 "1.0 = Triggers instantly on any value below average.\n"
-                 "0.75 = Requires a pixel to drop at least 25% below the environment baseline.";
+    ui_tooltip = "How much darker than the scene average a pixel must be before the\n"
+                 "cool tint applies.";
 > = 0.70;
 
 uniform bool EnablePurkinje <
     ui_label = "Enable Purkinje Effect";
     ui_category = "Adaptive Color Volume";
     ui_tooltip = "Simulates scotopic vision shift in dark scenes.";
-> = true;
-
-uniform bool ScalePurkinjeWithIntensity <
-    ui_label = "Scale Purkinje with INTENSITY";
-    ui_category = "Adaptive Color Volume";
-    ui_tooltip = "If enabled, the scotopic shift scales with the main INTENSITY\n"
-                 "slider, so INTENSITY 0 is a true no-op rather than still shifting\n"
-                 "night colour.\n\n"
-                 "Like the tonal curves and unlike the split toning, this does not\n"
-                 "also scale with the Dark Scene Fade. The shift is a colour remap\n"
-                 "driven by pixel luminance and amplifies no high-frequency detail,\n"
-                 "and folding the fade in would cancel it in precisely the dark\n"
-                 "scenes it exists for.\n\n"
-                 "If disabled, the shift runs at full strength regardless of\n"
-                 "INTENSITY, which is how earlier versions behaved.";
 > = true;
 
 uniform float Purkinje_Red_Reduction <
@@ -811,10 +639,8 @@ uniform bool Debug_Deband <
 uniform float FrameTime < source = "frametime"; >;
 uniform int FrameCount < source = "framecount"; >;
 
-// Quantisation step of the output, taken from the real bit depth of the
-// swapchain (255 for 8-bit, 1023 for 10-bit) rather than always assuming 8-bit.
-// The dither is scaled in these units, so it stays matched to whatever the
-// display chain actually rounds to.
+// Quantisation step of the output, from the real backbuffer bit depth, so the
+// dither and the debander both work in units of one visible level.
 #ifndef BUFFER_COLOR_BIT_DEPTH
     #define BUFFER_COLOR_BIT_DEPTH 8
 #endif
@@ -855,13 +681,9 @@ namespace DZPHDR
         Texture = TexColor;
     };
 
-    // The tone-mapped frame, held back one pass so the debander can look at its
-    // neighbours and the dither can be the last thing that happens. Alpha carries
-    // how far this shader moved each pixel, which is what scopes the debander.
-    //
-    // Half float, not 8-bit: the debander's whole job is to land on values between
-    // the quantisation levels, and backbuffer precision would round them straight
-    // back onto the steps it just removed.
+    // Held back one pass so the debander can see its neighbours and the dither
+    // runs last. Alpha carries how far this shader moved each pixel.
+    // Half float: the debander lands values between the 8-bit levels.
     texture TexCombined
     {
         Width  = BUFFER_WIDTH;
@@ -907,11 +729,8 @@ namespace DZPHDR
         Texture = TexLuma;
     };
 
-    // Log-luminance copy of TexLuma. Eye adaptation averages this instead of
-    // TexLuma so the scene metric is a geometric (log) mean, which is far more
-    // stable than an arithmetic mean - a few very bright pixels no longer drag
-    // the whole exposure. Kept separate because the guided filters and the
-    // final combine still need the linear TexLuma.
+    // Log-luminance copy of TexLuma. Averaging in log space gives a geometric
+    // mean, so one bright lamp cannot drag the whole reading up.
     texture TexLumaLog
     {
         Width     = BUFFER_WIDTH;
@@ -1157,10 +976,8 @@ float3 GetShadowTintColor()
         : lerp(blue, indigo, (ShadowTintTone - 0.5) * 2.0);
 }
 
-// Per-zone tonal delta. The standard 4.0 coefficient keeps all three zones on
-// the same intensity scale - no zone receives special amplification.
-// Callers pass (slider - 1.0) so that the default value of 1.0 yields a zero
-// delta, matching the original PHDR behavior exactly.
+// Per-zone tonal delta. The 4.0 coefficient keeps the three zone weights
+// summing to 1 across the luma range.
 float AdaptionDelta(float luma, float strengthMidtones, float strengthShadows, float strengthHighlights)
 {
     float midtones   = (4.0 * strengthMidtones - strengthHighlights - strengthShadows) * luma * (1.0 - luma);
@@ -1169,14 +986,8 @@ float AdaptionDelta(float luma, float strengthMidtones, float strengthShadows, f
     return midtones + shadows + highlights;
 }
 
-// Biggest curve weight that still leaves luma -> luma + delta rising everywhere.
-// Opposed slider settings (crushed highlights against lifted shadows) can tilt
-// the delta steeply enough to invert the tone order, so darker pixels come out
-// brighter than lighter ones. Differentiating AdaptionDelta gives a slope of
-// A * (1 - 2 * luma) + (hi - sh) with A = 4 * mid - hi - sh, which bottoms out at
-// (hi - sh) - |A| when the delta is added and at -((hi - sh) + |A|) when it is
-// subtracted. Hold weight * that slope at -1 or above and the curve can flatten
-// but never fold back on itself.
+// Biggest curve weight that keeps luma -> luma + delta monotonic, so the
+// tonal curve cannot fold back on itself and invert an edge.
 float MonotonicCurveLimit(float strengthMidtones, float strengthShadows, float strengthHighlights, bool subtracted)
 {
     float A     = 4.0 * strengthMidtones - strengthHighlights - strengthShadows;
@@ -1233,11 +1044,8 @@ void PS_LumaLog(VS_OUTPUT input, out float logLuma : SV_Target)
 
 float PS_Luma512(VS_OUTPUT input) : SV_Target
 {
-    // Screen resolution is well above 1024, so a 4-tap box at mip 0 would skip
-    // most source pixels and alias the whole downsample chain. Pull from the
-    // log-luma mip whose resolution is closest to 1024 so the 4 bilinear taps
-    // cover the full footprint of one 512x512 texel. Everything downstream in
-    // this pyramid stays in the log domain until SampleAvgLuma exp()s it.
+    // Above 1024 a 4-tap box at mip 0 would skip most source pixels and alias the
+    // downsample chain, so pull from the mip nearest 1024 instead.
     const float srcMip = max(0.0, ceil(log2(max(BUFFER_WIDTH, BUFFER_HEIGHT) / 1024.0)));
     const float2 ps = exp2(srcMip) * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
     float v = 0.0;
@@ -1281,33 +1089,41 @@ float PS_Luma64(VS_OUTPUT input) : SV_Target
     return v * 0.25;
 }
 
-float SampleAvgLuma()
+// One log-luminance tap from whichever pyramid the Luma Texture Size selects.
+float SampleLogLumaAt(float2 uv, float mip)
 {
-    // Every source here holds log-luminance, so exp() the sampled mip to recover
-    // the geometric mean of the covered region.
-    float4 uvMip = float4(0.5, 0.5, 0.0, TriggerRadius);
-    float logAvg;
+    float4 uvMip = float4(uv, 0.0, mip);
     [branch]
-    if (LumaTextureSize == 1)      logAvg = tex2Dlod(sTexLuma512, uvMip).r;
-    else if (LumaTextureSize == 2) logAvg = tex2Dlod(sTexLuma256, uvMip).r;
-    else if (LumaTextureSize == 3) logAvg = tex2Dlod(sTexLuma128, uvMip).r;
-    else if (LumaTextureSize == 4) logAvg = tex2Dlod(sTexLuma64,  uvMip).r;
-    else                           logAvg = tex2Dlod(sTexLumaLog, uvMip).r;
-    return exp(logAvg);
+    if (LumaTextureSize == 1)      return tex2Dlod(sTexLuma512, uvMip).r;
+    else if (LumaTextureSize == 2) return tex2Dlod(sTexLuma256, uvMip).r;
+    else if (LumaTextureSize == 3) return tex2Dlod(sTexLuma128, uvMip).r;
+    else if (LumaTextureSize == 4) return tex2Dlod(sTexLuma64,  uvMip).r;
+    else                           return tex2Dlod(sTexLumaLog, uvMip).r;
 }
 
-// Convert accumulated (mean_I, mean_II) moments into guided-filter coefficients
-// (a, b). Computing these at low resolution and letting the final pass bilinearly
-// upsample them is the fast guided filter - it avoids the edge halos that come
-// from deriving 'a' at full res out of already-interpolated moments.
+// Mip N spans 2^N texels whatever the screen is, so the metering tap has to
+// shift with resolution or every scene brightness reading drifts with it.
+float MeteringMip()
+{
+    if (LumaTextureSize != 0)
+        return TriggerRadius;
+
+    return max(0.0, TriggerRadius + log2(float(BUFFER_HEIGHT) / REFERENCE_HEIGHT));
+}
+
+float SampleAvgLuma()
+{
+    // The source holds log-luminance, so exp() of a tap that the mip chain has
+    // already box averaged gives a geometric mean over the covered region.
+    return exp(SampleLogLumaAt(float2(0.5, 0.5), MeteringMip()));
+}
+
+// Moments to guided-filter (a, b). Derived at low resolution and bilinearly
+// upsampled, which is the fast guided filter and avoids edge halos.
 //
-// eps scales per scale: a self-guided filter with a fixed epsilon smooths LESS
-// as the window grows (a bigger window holds more variance, which pushes a -> 1
-// and the base back toward the input). Left unscaled, the large-radius macro
-// base ends up tracking the image more closely than the medium base, inverting
-// the coarse-to-fine order and flipping the sign of the macro contrast band.
-// Growing eps with the square of the radius ratio restores a proper pyramid
-// where each coarser base is genuinely smoother than the finer one.
+// eps scales with the square of the radius ratio. A fixed eps smooths less as
+// the window grows, which would let the macro base track the image more
+// closely than the medium one and flip the sign of the macro band.
 float2 MomentsToAB(float2 m, float eps)
 {
     float var = m.y - m.x * m.x;
@@ -1316,18 +1132,18 @@ float2 MomentsToAB(float2 m, float eps)
 }
 
 // ---- Standard (Medium) Guided Scale Filters ----
-// Integer tap counts keep the window exactly symmetric; a float accumulator
-// (x += step) can drop the +r endpoint to rounding error and bias the mean.
+// Integer tap counts keep the window symmetric; a float accumulator can drop
+// the endpoint to rounding error and bias the mean.
 //
-// stepSize = r / 3 pins every scale to 7 taps regardless of radius, so a wide
-// window is covered by taps that stand tens of pixels apart. Read at LOD 0 those
-// are point samples with holes between them: fine detail folds into both moments,
-// the variance drives 'a' off the aliased value, and the base shimmers as content
-// drifts through the sampling comb. Reading each tap from the mip whose footprint
-// matches its own stride turns it into the average of the pixels it stands for.
-// This also measures each scale's variance at that scale rather than letting pixel
-// detail leak into the coarse windows, which reinforces the coarse-to-fine
-// ordering that MomentsToAB's epsilon scaling is there to protect.
+// stepSize = r / 3 pins every scale to 7 taps, so a wide window has taps tens
+// of pixels apart. Each tap reads the mip matching its own stride, otherwise
+// they are point samples with holes between them and the base shimmers as
+// content drifts through the comb.
+float ToPixels(float authored)
+{
+    return max(1.0, authored * (float(BUFFER_HEIGHT) / REFERENCE_HEIGHT));
+}
+
 float MipForStride(float stepSize)
 {
     return max(0.0, log2(stepSize));
@@ -1336,8 +1152,9 @@ float MipForStride(float stepSize)
 void PS_CalcMeansH_Medium(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float stepSize = max(1.0, Radius / 3.0);
-    int taps = int(Radius / stepSize + 1e-3);
+    float r = ToPixels(Radius);
+    float stepSize = max(1.0, r / 3.0);
+    int taps = int(r / stepSize + 1e-3);
     // Sampling TexLuma, which is full resolution, so the stride is already in texels.
     float lod = MipForStride(stepSize);
     float2 sum = 0.0;
@@ -1353,8 +1170,9 @@ void PS_CalcMeansH_Medium(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 ab : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float stepSize = max(1.0, Radius / 3.0);
-    int taps = int(Radius / stepSize + 1e-3);
+    float r = ToPixels(Radius);
+    float stepSize = max(1.0, r / 3.0);
+    int taps = int(r / stepSize + 1e-3);
     // The offsets are in full-res pixels but the moments texture is 1/SCALE that
     // size, so the stride is that many fewer texels and the matching mip is lower.
     float lod = MipForStride(stepSize / float(SCALE));
@@ -1374,7 +1192,7 @@ void PS_CalcMeansV_Medium(VS_OUTPUT input, out float2 ab : SV_Target)
 void PS_CalcMeansH_Micro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float r = max(1.0, Radius / 3.0);
+    float r = max(1.0, ToPixels(Radius) / 3.0);
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
     float lod = MipForStride(stepSize);
@@ -1391,7 +1209,7 @@ void PS_CalcMeansH_Micro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 ab : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float r = max(1.0, Radius / 3.0);
+    float r = max(1.0, ToPixels(Radius) / 3.0);
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
     float lod = MipForStride(stepSize / float(SCALE));
@@ -1403,7 +1221,7 @@ void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 ab : SV_Target)
         sum += val;
     }
     // Finer than medium, so a smaller eps keeps the micro base close to the input.
-    float ratio = r / Radius;
+    float ratio = r / ToPixels(Radius);
     ab = MomentsToAB(sum / (2 * taps + 1), Epsilon * ratio * ratio);
 }
 
@@ -1411,7 +1229,11 @@ void PS_CalcMeansV_Micro(VS_OUTPUT input, out float2 ab : SV_Target)
 void PS_CalcMeansH_Macro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float r = min(90.0, Radius * 3.0);
+    // No ceiling. Cost does not vary with the radius, since the window is
+    // always seven strided taps, and a cap here silently froze the coarsest
+    // scale once Smoothing Radius passed 30 while leaving the eps ratio below
+    // to drift.
+    float r = ToPixels(Radius) * 3.0;
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
     // Widest stride of the three scales, so this is where LOD 0 aliased worst.
@@ -1429,7 +1251,11 @@ void PS_CalcMeansH_Macro(VS_OUTPUT input, out float2 mean_horiz : SV_Target)
 void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 ab : SV_Target)
 {
     float2 ps = bb::PixelSize;
-    float r = min(90.0, Radius * 3.0);
+    // No ceiling. Cost does not vary with the radius, since the window is
+    // always seven strided taps, and a cap here silently froze the coarsest
+    // scale once Smoothing Radius passed 30 while leaving the eps ratio below
+    // to drift.
+    float r = ToPixels(Radius) * 3.0;
     float stepSize = max(1.0, r / 3.0);
     int taps = int(r / stepSize + 1e-3);
     float lod = MipForStride(stepSize / float(SCALE));
@@ -1442,7 +1268,7 @@ void PS_CalcMeansV_Macro(VS_OUTPUT input, out float2 ab : SV_Target)
     }
     // Coarser than medium, so a larger eps forces the macro base to smooth out
     // the medium-scale structure and become the true low-frequency layer.
-    float ratio = r / Radius;
+    float ratio = r / ToPixels(Radius);
     ab = MomentsToAB(sum / (2 * taps + 1), Epsilon * ratio * ratio);
 }
 
@@ -1505,33 +1331,19 @@ void PS_CalcAdapt(VS_OUTPUT input, out float2 adapt : SV_Target)
     adapt = float2(max(slow, 1e-5), max(fast, 1e-5));
 }
 
-// Interleaved Gradient Noise. Jimenez's constants, from the Advanced Warfare
-// post-processing work. Its values are well spread over any small neighbourhood
-// rather than merely random, which is the property that makes a dither pattern
-// disappear into a gradient instead of clumping into visible speckle. A stored
-// blue-noise mask scores better still, but that would mean shipping a texture
-// alongside the shader, and this comes close enough for a single quantisation step.
+// Interleaved Gradient Noise, Jimenez's constants. Well spread over a small
+// neighbourhood rather than merely random, so it hides in a gradient instead
+// of clumping. The stored blue-noise mask is better but needs a texture.
 float InterleavedGradientNoise(float2 pos)
 {
     const float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
     return frac(magic.z * frac(dot(pos, magic.xy)));
 }
 
-// Reshape a uniform sample into a triangular one spanning [-0.5, 1.5], so the
-// pattern covers two quantisation steps with most of its weight near the middle.
-//
-// A flat distribution one step wide decorrelates the average quantisation error
-// but not its variance, so the amount of noise still rises and falls with the
-// signal and a band survives as a change in the texture of the grain rather than
-// as a hard edge. A triangular distribution two steps wide decorrelates the
-// variance too, which is what holds the noise floor steady right across a
-// gradient. That is the same reason audio mastering settles on triangular dither.
-//
-// This is a monotonic remap of one sample, not a sum of two. Summing is the usual
-// way to build a triangular distribution, but it averages two lookups together
-// and throws away the careful spatial arrangement that made the pattern good in
-// the first place, leaving something closer to plain white noise. Remapping keeps
-// each pixel's rank within the pattern exactly where it was.
+// Reshape a uniform sample into a triangular one over [-0.5, 1.5]. Two steps
+// wide decorrelates the noise variance as well as the mean, which is what
+// holds the noise floor steady across a gradient. Remapped, not summed: a sum
+// of two lookups averages away the pattern's spatial arrangement.
 float ReshapeUniformToTriangle(float v)
 {
     v = frac(v + 0.5);
@@ -1562,29 +1374,22 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
 
     float Base = Bases.y; // Medium base is default
 
-    // Non-overlapping log-space frequency bands so each slider controls a
-    // disjoint scale. With all sliders at 0 this reduces to the original
-    // R_val = log(L) - log(Bases.y). The macro band contributes only through
-    // its slider, keeping the medium base as the reconstruction reference.
+    // Non-overlapping log-space bands, so each slider owns one scale and the three
+    // reconstruct without beating against each other.
     float band_micro  = log(L)       - log(Bases.x);
     float band_medium = log(Bases.x) - log(Bases.y);
     float band_macro  = log(Bases.y) - log(Bases.z);
 
-    // Macro is a bare gain rather than 1 + slider like the two finer bands, because
-    // the medium base already divides the coarse structure out of the default
-    // reconstruction: the macro band starts absent and the slider adds it back. That
-    // makes 0 the flat end of the range, not its centre, so the gain is held at or
-    // above 0 here as well as in the UI bound. A negative gain would not flatten the
-    // band further, it would subtract past flat and invert it, darkening whichever
-    // side of a large-scale edge is meant to read brighter.
+    // Macro is a bare gain, not 1 + slider like the finer bands, so 0 means no
+    // large-scale contrast added rather than the band being subtracted out.
     float macro_gain = max(Contrast_Macro, 0.0);
 
-    float R_val = band_micro  * (1.0 + Contrast_Micro)
+    float micro_gain = 1.0 + Contrast_Micro;
+
+    float R_val = band_micro  * micro_gain
                 + band_medium * (1.0 + Contrast_Medium)
                 + band_macro  * macro_gain;
 
-    // High-frequency reflectance detail used later for contrast masking
-    float hf_detail  = L - Base;
     float sm_manual  = clamp(ManualExposure, 0.01, 0.99);
     float sm_adapt   = EnableAdaptation ? clamp(tex2Dfetch(sTexAdapt, 0).r, 0.01, 0.99) : sm_manual;
     // AdaptationStrength > 1.0 extrapolates the lerp, so re-clamp to keep the
@@ -1596,6 +1401,21 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     {
         float factor = pow(abs(L / scene_mean), 0.5);
         R_new = R_val * factor;
+    }
+
+    // Hold the detail term to a stated number of stops, darkening side only.
+    // The artefact is a dark rim, so limiting both directions would spend
+    // highlight detail to buy back something only one side is doing.
+    [branch]
+    if (DetailLimit > 0.0)
+    {
+        // Only the darkening side. The artefact is a DARK rim on the shadow
+        // side of a bright object, so compressing both directions spends the
+        // highlight detail that makes a lit surface read as lit in order to
+        // buy back something only the shadow side is doing.
+        float knee = DetailLimit * 0.6931472; // stops to natural log
+        if (R_new < 0.0)
+            R_new = -knee * tanh(-R_new / knee);
     }
 
     float inv_L = 1.0 - L;
@@ -1621,20 +1441,10 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
     float ratio = clamp((A / (B + 1e-6)) / L, 0.0, 3.0);
 
-    // Dynamic intensity: ramp the fusion down in very dark scenes, where the
-    // log-ratio has almost no real range to recover and mostly amplifies
-    // compression noise. dark_fade is 1 above the threshold, easing to 0 at
-    // black; DynamicIntensity picks how much of that fade actually applies.
-    // Ramp from the darkest brightness the adaptation can report rather than from
-    // black, otherwise the floor clips the bottom off it and the fade never quite
-    // arrives. The minimum width stops a low threshold sitting near the floor from
-    // squeezing the whole ramp into a couple of hundredths and turning it into a step.
-    // scene_mean is clamped to a 0.01 floor above, so the ramp has to start at or
-    // above that floor: anchoring it lower (a sub-0.01 Adaptation Floor, or 0.0 in
-    // manual mode) leaves a slice of the ramp that scene_mean can never reach and
-    // the fade bottoms out at a few percent instead of fully releasing.
+    // Ramp the fusion down in very dark scenes, where there is little range left
+    // to recover and the detail term is mostly noise.
     float fade_lo   = EnableAdaptation ? max(AdaptMin, 0.01) : 0.01;
-    float fade_hi   = max(DarkFadeThreshold, fade_lo + 0.10);
+    float fade_hi   = max(DarkFadeThreshold, fade_lo + 0.005);
     float dark_fade = smoothstep(fade_lo, fade_hi, scene_mean);
     float effective_strength = Strength * lerp(1.0, dark_fade, DynamicIntensity);
 
@@ -1651,36 +1461,16 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // Use 1.0 strength for static manual exposure, otherwise use the slider
     float current_strength = EnableAdaptation ? AdaptationStrength : 1.0;
 
-    // Fold INTENSITY and the Dark Scene Fade into the tonal curve, matching the
-    // split toning and the contrast halo. Without this the Lift and Pull sliders
-    // keep their full authority at INTENSITY 0, so the shader is not actually
-    // off when the slider says it is, and the Dark Scene Fade releases the tone
-    // fusion from a night scene while the tonal curve carries on reshaping it.
     // INTENSITY alone, deliberately not effective_strength. The tints and the
-    // contrast halo scale by the faded value because both are derived from
-    // hf_detail, which in a dark scene is mostly compression noise the fade
-    // exists to stop amplifying. The tonal curve is a global remap of luma and
-    // amplifies nothing, so the same argument does not apply to it. Folding the
-    // fade in here would mean the Dark Scene Fade silently disables the Lift
-    // sliders in exactly the scenes they are there to shape, leaving no way to
-    // release the tone fusion from a night scene and still set its tonal
-    // balance.
-    if (ScaleTonalWithIntensity)
-        current_strength *= Strength;
+    // halo take the faded value because they amplify high-frequency detail that
+    // is mostly noise in a dark scene. A global luma remap amplifies nothing, and
+    // folding the fade in here would disable Lift in the scenes it exists for.
+    current_strength *= Strength;
 
-    // Split point between brightening and darkening. Distance from it is counted
-    // in stops against a fixed span, not as a fraction of the space
-    // left on either side. Counting in stops keeps the ramp the same
-    // width above and below the pivot and at every pivot setting: moving the
-    // neutral point slides the response along rather than stretching it, and a
-    // Lift of 1.2 one stop below neutral answers a Pull of 1.2 one stop above it.
-    // smoothstep is flat at the pivot and flat again at full travel, so settled
-    // scenes hold steady and nothing kicks as the scene drifts across neutral.
-    //
-    // Which branch can run is bounded by the Adaptation Floor and Ceiling, since
-    // those cap what sm_adapt can report. A pivot outside that bracket leaves one
-    // branch unreachable and its three sliders inert, and a pivot near either end
-    // leaves that side too little travel to reach full response.
+    // Split point between Lift and Pull. Distance is counted in stops over a
+    // fixed span, so moving the pivot slides the response rather than stretching
+    // it. Bounded by the Adaptation Floor and Ceiling: a pivot outside that
+    // bracket leaves one group's sliders inert.
     float pivot = clamp(TonalNeutralPoint, 0.05, 0.95);
 
     // sm_adapt defaults to ManualExposure when adaptation is disabled
@@ -1726,8 +1516,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         // uses it: this is a luma-driven colour remap, not something derived from
         // high-frequency detail, so the Dark Scene Fade has no noise argument to
         // make against it and would only cancel it in the scenes it is for.
-        if (ScalePurkinjeWithIntensity)
-            purkinje_strength *= Strength;
+        purkinje_strength *= Strength;
 
         purkinje_mask = purkinje_strength * shadow_mask;
 
@@ -1740,7 +1529,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
 
     [branch]
-    if (EnableSplitToning && (!ScaleTintsWithIntensity || effective_strength > 0.0))
+    if (EnableSplitToning && effective_strength > 0.0)
     {
         float local_luma     = GetLuminance(blended);
         float contrast_ratio = local_luma / (scene_mean + 0.0001);
@@ -1749,7 +1538,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         // with the Dark Scene Fade instead of holding full opacity over a scene the
         // tone fusion has already released. The highlight weight is 1.0 in dark
         // scenes, so without this the highlight tint keeps shifting colour there.
-        float strength_weight         = ScaleTintsWithIntensity ? pow(effective_strength, 0.75) : 1.0;
+        float strength_weight         = pow(effective_strength, 0.75);
         float scene_shadow_weight     = smoothstep(0.0, 0.3, scene_mean);
         float scene_highlight_weight  = smoothstep(1.0, 0.7, scene_mean);
 
@@ -1772,17 +1561,13 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
         }
     }
 
-    // Simultaneous Contrast Masking: create a microscopic dark halo around bright
-    // objects by slightly deepening pixels that sit on the shadow side of an edge.
-    // hf_detail < 0 identifies pixels darker than their local base (shadow boundaries).
-    // A 3.0 multiplier increases visibility, capping the raw mask at 0.40 prevents the line from dropping to pure black.
-    // Gating on the local base brightness keeps the halo next to genuinely bright
-    // neighbourhoods, so it stops darkening high-frequency noise in flat shadows.
-    // Scaled by effective_strength for the same reason the tints are: the halo is
-    // derived from hf_detail, and in a dark scene that detail is mostly compression
-    // noise, which is exactly what the Dark Scene Fade exists to stop amplifying.
-    // It also means INTENSITY 0 is a genuine no-op instead of still drawing edges.
+    // Simultaneous contrast masking: deepen the shadow side of bright edges.
+    // Negative detail means darker than the local base. The 3.0 makes the mask
+    // visible, the 0.40 stops it reaching black, and the Base gate keeps it off
+    // noise in flat shadows. This is the etched-outline artefact, by design.
     float bright_neighbour = smoothstep(0.15, 0.5, Base);
+
+    float hf_detail = L - Base;
     float contrast_shadow = min(saturate(-hf_detail * 3.0), 0.40) * Contrast_Shadow_Strength * bright_neighbour * effective_strength;
 
     // Visualization block
@@ -1805,33 +1590,12 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     return float4(blended, moved);
 }
 
-// Rebuild a gradient that has been quantised into visible steps.
+// Rebuild a gradient quantised into visible steps.
 //
-// A band is a run of pixels that should have differed slightly and instead all
-// landed on the same level. The value they should have had is still recoverable,
-// because the surrounding area still carries the gradient: average a wide enough
-// neighbourhood and the average lands between the levels, where the pixel belonged.
-//
-// Knowing when not to do that is the whole difficulty, and it is where debanders
-// lose detail. Three tests have to agree.
-//
-// Two of them are the usual pair, graded rather than pass/fail so the repair fades
-// in and out instead of switching and leaving blotches along the boundary. The
-// neighbourhood average has to sit close to the pixel, which holds across a flat
-// step and fails at an edge. The samples have to agree with each other, which holds
-// on a gradient and fails in loud texture.
-//
-// Neither of those can see quiet texture, and that is the failure every debander
-// built on this shape shares. Both ask how FAR apart values are, and faint detail
-// is not far apart, so it reads exactly like a band and gets flattened. The third
-// test asks something else: how OFTEN the value changes. Inside a band neighbouring
-// pixels are identical, which is what makes it a band, while texture changes from
-// one pixel to the next however faint it is overall. That is a property the two
-// genuinely differ on, so it can separate them where amplitude cannot.
-//
-// Hold a value to +/-limit without cornering at it. Anything up to half the limit
-// passes through untouched, and beyond that the curve bends over and approaches the
-// limit instead of meeting it, so no new edge appears where the cap starts to bite.
+// Three tests have to agree: the neighbourhood average sits close to the
+// pixel, the samples agree with each other, and the value does not change
+// pixel to pixel. The third carries it, since the first two only measure how
+// far apart values are and quiet texture is not far apart.
 float3 SoftLimit(float3 v, float limit)
 {
     float3 a    = abs(v);
@@ -1840,16 +1604,7 @@ float3 SoftLimit(float3 v, float limit)
     return sign(v) * min(a, knee + over * knee / (knee + over));
 }
 
-// All three tests read the incoming frame, and only the repair itself is taken
-// from the tone-mapped one. Deciding and reconstructing are different questions.
-// Whether a pixel sits in a band is a question about the frame as it arrived, and
-// it is exact there: quantisation steps are genuinely one step apart, and a band is
-// genuinely piecewise-constant. By the time the tone fusion has been through it,
-// local gain has stretched those steps by an amount that varies across the picture,
-// so a threshold quoted in steps no longer means anything fixed. What the pixel
-// should be replaced with, on the other hand, has to be answered in output space,
-// because that is where the value has to land between the levels. So the taps read
-// both images: the source decides, the output supplies the answer.
+// The tests read the incoming frame; only the repair lands in output space.
 float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
               float threshold, float radius, int iterations, int taps, float detail)
 {
@@ -1879,9 +1634,9 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
     [loop]
     for (int i = 1; i <= iterations; i++)
     {
-        // Reach further and judge more strictly as the passes go on, so the first
-        // pass fixes the coarse steps and later ones only tidy what is left.
-        float r_i    = radius * float(i);
+        // Reach further and judge more strictly each pass, so the first fixes the
+        // coarse steps and later ones tidy what is left. Converted like Radius.
+        float r_i    = ToPixels(radius) * float(i);
         float bound  = threshold * step_size / float(i);
 
         // Turn the sampling pattern by a different angle at every pixel, on every
@@ -1906,11 +1661,8 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
 
             float4 at = float4(uv + float2(cos(a), sin(a)) * rr * ps, 0.0, 0.0);
 
-            // Accumulate offsets from the centre rather than the samples themselves.
-            // The spread being measured is a couple of quantisation steps across
-            // values that sit anywhere in [0,1], and taking the variance as the
-            // difference of two near-equal large numbers throws away most of the
-            // float precision exactly where the decision is finest.
+            // Accumulate offsets from the centre, not the samples, so the sum stays small
+            // and does not lose the sub-step precision the repair depends on.
             float3 sd_ = tex2Dlod(sTexColor,    at).rgb - src_centre;
             float3 od_ = tex2Dlod(sTexCombined, at).rgb - out_centre;
 
@@ -1937,12 +1689,8 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
         res = lerp(res, out_avg, flat_weight * calm_weight * guard);
     }
 
-    // Cap the repair. A band is a step or two tall, so that is the size of the
-    // correction it takes; anything much larger is not flattening a step, it is
-    // averaging away contrast that belongs in the picture. Without this, a wide
-    // search radius over an area the tone fusion has just added local contrast to
-    // will happily average that contrast back out and undo the effect. With it,
-    // the debander can only ever remove the step.
+    // Cap the repair: a band is a step or two tall, so a larger correction is
+    // averaging away contrast rather than repairing a step.
     return out_centre + SoftLimit(res - out_centre, DebandMaxCorrection / DitherSteps);
 }
 
@@ -1974,13 +1722,9 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
         int   slice  = int((uint(FrameCount) + uint(STBN_DEPTH / 2)) % uint(STBN_DEPTH));
         float jitter = SampleBlueNoise(int2(input.uv * bb::ScreenSize), slice).b;
 
-        // Alpha holds how far this shader moved the pixel, in steps. That splits the
-        // frame into the part the tone fusion reworked and the part it left close to
-        // how it arrived. The two want different handling and get it: banding the
-        // shader opened up is its own mess to clean, and can be gone after hard,
-        // while anything over the other side of the line was already there, texture
-        // included, so it is treated with a lighter hand. Both run every frame; this
-        // is a crossfade between two treatments, not a choice of one.
+        // Alpha holds how far this shader moved the pixel. Banding the shader opened
+        // up can be gone after hard; banding that was already there is treated more
+        // gently. Both run every frame, crossfaded rather than switched.
         float effect = smoothstep(DebandSplit * 0.5, DebandSplit, centre.a);
 
         float3 strong = blended;
@@ -2046,11 +1790,8 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
             ReshapeUniformToTriangle(uniform_noise.b)) - 0.5;
     }
 
-    // Banding needs a stretch of near-constant colour to form, so the mask reads
-    // the screen-space slope and only lets the dither through where the image is
-    // nearly flat. It closes completely at a slope of 1/64 per pixel, roughly four
-    // 8-bit steps, which is far steeper than any gradient that could band, so
-    // texture and edges get nothing while the flat stretches get the full amount.
+    // Banding needs a stretch of near-constant colour, so gate the repair on the
+    // screen-space slope and leave textured regions alone.
     float lum_dx = abs(ddx(GetLuminance(blended)));
     float lum_dy = abs(ddy(GetLuminance(blended)));
 

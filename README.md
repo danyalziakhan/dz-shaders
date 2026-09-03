@@ -14,7 +14,7 @@ A debug and visualization shader for inspecting mipmapped luminance textures.
 
 Many eye adaptation and auto-exposure shaders estimate scene brightness by sampling high mip levels of a luminance texture. The mip you pick changes the result a lot, but it's hard to see what any given level actually contains or how much detail survives there.
 
-MipScope keeps five luminance textures at different resolutions (full res, 512×512, 256×256, 128×128, 64×64), each with a full mip chain. The smaller ones are built by box-downsampling the chain rather than point-sampling the screen, so they show what a real downsampled luma texture looks like instead of an aliased subsample. The full-res chain length comes from your actual screen size, so the tool reports the true mip count — 11 at 1080p, 12 at 1440p and 4K. You can switch textures, step through levels, and watch how sampling behaviour changes across the chain.
+MipScope keeps five luminance textures at different resolutions (full res, 512×512, 256×256, 128×128, 64×64), each with a full mip chain. The smaller ones are built by box-downsampling the chain rather than point-sampling the screen, so they show what a real downsampled luma texture looks like instead of an aliased subsample. The full-res chain length comes from your actual screen size, so the tool reports the true mip count: 11 at 1080p, 12 at 1440p and 4K. You can switch textures, step through levels, and watch how sampling behaviour changes across the chain.
 
 **Requires:** `ReShade.fxh` only. No additional shader packs needed.
 
@@ -30,9 +30,9 @@ Shows every mip at once in a 4-column grid starting from mip 0. The selected one
 
 **Mode 2: Sample Region Overlay**
 
-Shows the scene in grayscale with a yellow rectangle marking the screen region the sampled texel covers. The box snaps to the real texel grid at the selected mip — it finds which texel your Sample UV lands in and outlines that texel's footprint, so the overlay sits on actual texel boundaries rather than just centring on the cursor.
+Shows the scene in grayscale with a yellow rectangle marking the screen region the sampled texel covers. The box snaps to the real texel grid at the selected mip. It finds which texel your Sample UV lands in and outlines that texel's footprint, so the overlay sits on actual texel boundaries rather than just centring on the cursor.
 
-The last valid mip of any texture is 1×1, so that single sample represents the whole image. Ask for anything beyond it and the GPU clamps there anyway, so the region stays at 100%. That's correct — it's exactly what a real adaptation shader does when it over-requests. (Texel sizes come from standard box-filter dimensions, so on non-power-of-two textures the driver's footprint may differ by a fraction of a texel, but it's close.)
+The last valid mip of any texture is 1×1, so that single sample represents the whole image. Ask for anything beyond it and the GPU clamps there anyway, so the region stays at 100%. That's correct, and exactly what a real adaptation shader does when it over-requests. (Texel sizes come from standard box-filter dimensions, so on non-power-of-two textures the driver's footprint may differ by a fraction of a texel, but it's close.)
 
 **Mode 3: Luminance Heatmap**
 
@@ -54,7 +54,7 @@ Maps luminance to false colour. Rainbow runs blue (dark) through green to red (b
 
 #### Understanding the mip chain
 
-Declaring `MipLevels = N` in a ReShade texture gives you N levels, indexed 0 through N-1. The last is always 1×1 — one value standing for the entire image, and where most adaptation shaders read their global average.
+Declaring `MipLevels = N` in a ReShade texture gives you N levels, indexed 0 through N-1. The last is always 1×1, one value standing for the entire image, and where most adaptation shaders read their global average.
 
 Sample a mip index that doesn't exist and the GPU clamps to the last valid one. A shader declaring `MipLevels = 8` and sampling mip 8 is really reading mip 7. The mip slider deliberately allows out-of-range values so you can watch that clamping happen.
 
@@ -81,7 +81,7 @@ Three stacked filters do the work: a hue gate centred on your chosen blood tone,
 
 Designed and tuned for Mortal Kombat 1. Should work for any game that uses realistic blood tones.
 
-**Requires:** `ReShade.fxh` only. No additional shader packs needed — all conversion code is self-contained.
+**Requires:** `ReShade.fxh` only. No additional shader packs needed. All conversion code is self-contained.
 
 #### Settings
 
@@ -90,7 +90,7 @@ Designed and tuned for Mortal Kombat 1. Should work for any game that uses reali
 | Blood Tone | 0.5 | Shifts the hue target across the blood spectrum. Left (0.0) = dark crimson/pooled blood. Center (0.5) = pure red/typical bright blood. Right (1.0) = orange-red/dried or coagulated blood. Most games work fine at the default. |
 | Detection Range | 0.08 | Width of the hue window around the target. Small values are tight and precise; large values catch a broader band of reds and orange-reds. Raise if neighboring blood pixels are not being picked up. Lower if non-blood reds (rust, armor) are triggering. |
 | Blood Saturation Threshold | 0.55 | Minimum color saturation a pixel must have to qualify as blood. Raise to exclude dull or faded reds (rust, worn cloth, dark brick). Lower if blood looks muted and is not being fully highlighted. |
-| Shadow Cutoff | 0.01 | Pixels darker than this brightness are excluded. Keeps very dark shadows and near-black surfaces from being tagged as blood. The default is very permissive — only raise it if dark areas are incorrectly picking up. |
+| Shadow Cutoff | 0.01 | Pixels darker than this brightness are excluded. Keeps very dark shadows and near-black surfaces from being tagged as blood. The default is very permissive, so only raise it if dark areas are incorrectly picking up. |
 | Highlight Cutoff | 0.40 | Pixels brighter than this brightness are excluded. Prevents fire, glowing UI elements, and bright red surfaces from triggering. Lower if non-blood reds are slipping through. Raise if blood on bright surfaces is getting cut out. |
 | Edge Softness | 0.10 | Width of the soft ramp on the saturation and highlight gates. Lower values give crisper, harder isolation edges; higher values feather the transition so blood blends more gradually into the desaturated background. |
 | Background Color Strength | 0.9 | How much color is retained in non-blood areas. 1.0 = fully original colors, 0.0 = completely grayscale. The default applies subtle desaturation so blood stands out without making the scene look stylized. |
@@ -103,14 +103,14 @@ Designed and tuned for Mortal Kombat 1. Should work for any game that uses reali
 
 The defaults are calibrated for Mortal Kombat 1. For other games:
 
-1. Find a scene with blood clearly visible on a neutral surface — floor, concrete, or bare skin work well.
-2. **Blood Tone** — if blood looks distinctly orange-red (dried, older games) nudge right. If it looks dark crimson or pooled, nudge left. Leave at center for standard bright red.
-3. **Detection Range** — this is the most important slider for coverage. If only a thin slice of blood is lighting up and neighboring pixels are not catching, raise it. If non-blood reds start triggering, lower it slightly. The default (0.08, ~29 degrees) covers most realistic blood palettes.
-4. **Shadow Cutoff** — lower slightly if blood pooling in dark shadows is not being picked up. The default (0.01) is already very permissive.
-5. **Highlight Cutoff** — lower if fire, UI elements, or environmental reds are bleeding into the effect. Raise if blood on bright surfaces (white fabric, lit floors) is getting cut out.
-6. **Blood Saturation Threshold** — raise if non-blood reds like rust, worn cloth, or red armor are being highlighted. Lower if blood looks faded or is only partially colored.
-7. **Background Color Strength** — adjust to taste. Lower values increase the contrast between blood and everything else at the cost of a more stylized look.
-8. **Blood Color Intensity** — leave at 1.0 unless you want to soften the effect and blend blood partway back toward the desaturated background.
+1. Find a scene with blood clearly visible on a neutral surface: floor, concrete, or bare skin work well.
+2. **Blood Tone**. If blood looks distinctly orange-red (dried, older games) nudge right. If it looks dark crimson or pooled, nudge left. Leave at center for standard bright red.
+3. **Detection Range**. This is the most important slider for coverage. If only a thin slice of blood is lighting up and neighboring pixels are not catching, raise it. If non-blood reds start triggering, lower it slightly. The default (0.08, ~29 degrees) covers most realistic blood palettes.
+4. **Shadow Cutoff**. Lower slightly if blood pooling in dark shadows is not being picked up. The default (0.01) is already very permissive.
+5. **Highlight Cutoff**. Lower if fire, UI elements, or environmental reds are bleeding into the effect. Raise if blood on bright surfaces (white fabric, lit floors) is getting cut out.
+6. **Blood Saturation Threshold**. Raise if non-blood reds like rust, worn cloth, or red armor are being highlighted. Lower if blood looks faded or is only partially colored.
+7. **Background Color Strength**. Adjust to taste. Lower values increase the contrast between blood and everything else at the cost of a more stylized look.
+8. **Blood Color Intensity**. Leave at 1.0 unless you want to soften the effect and blend blood partway back toward the desaturated background.
 
 ---
 
@@ -118,33 +118,33 @@ The defaults are calibrated for Mortal Kombat 1. For other games:
 
 **File:** `Shaders/PHDRPlus.fx`
 
-A perceptual HDR shader that tries to restore depth and dynamic range on an ordinary LDR monitor. It isn't true HDR — it reads per-pixel luminance, computes a scene average through eye adaptation, then fuses several virtual exposures to lift shadow detail and recover highlight structure at once.
+A perceptual HDR shader that tries to restore depth and dynamic range on an ordinary LDR monitor. It isn't true HDR. It reads per-pixel luminance, computes a scene average through eye adaptation, then fuses several virtual exposures to lift shadow detail and recover highlight structure at once.
 
 The core technique comes from BarbatosBachiko's PHDR: Weighted Least Squares smoothing for base layer extraction, Selective Reflectance Scaling to amplify the log-luminance ratio above the scene mean, Virtual Illumination Generation across five exposure points, and a weighted fusion back into one output. PHDR Plus adds:
 
-**Per-zone tonal adaptation.** Six Lift and Pull sliders set how hard highlights, midtones and shadows brighten in dark scenes and suppress in bright ones — the original only feeds exposure into the tone mapping, with no per-pixel push of its own. All six default to 1.0, neutral and identical to the original output.
+**Per-zone tonal adaptation.** Six Lift and Pull sliders set how hard highlights, midtones and shadows brighten in dark scenes and suppress in bright ones. The original only feeds exposure into the tone mapping, with no per-pixel push of its own. All six default to 1.0, neutral and identical to the original output.
 
 **Adaptive split toning.** Pixels brighter than the scene average take a warm tint, pixels below a shadow threshold take a cool one, both masked by local contrast ratio rather than absolute brightness so the effect tracks the environment. Tint strength can scale with INTENSITY and the Dark Scene Fade.
 
 **Configurable luma resolution and trigger radius.** The internal luminance texture runs full-res or downscales to 512² through 64²; Trigger Radius picks which mip feeds the scene average, from a central region up to a full-frame read.
 
-**A steadier, eye-like adaptation model.** Scene brightness is a geometric mean, so a torch or a patch of sky can't drag the exposure around. A short symmetric pre-filter cleans the raw signal before an asymmetric stage — quick to brighten, slow to dark-adapt — takes over; feeding the asymmetric stage raw, flickering input makes it creep upward, sitting noticeably brighter than the scene actually is. A floor and ceiling stop a fade-to-black or a flash from railing the adaptation.
+**A steadier, eye-like adaptation model.** Scene brightness is a geometric mean, so a torch or a patch of sky can't drag the exposure around. A short symmetric pre-filter cleans the raw signal before an asymmetric stage, quick to brighten and slow to dark-adapt, takes over; feeding the asymmetric stage raw, flickering input makes it creep upward, sitting noticeably brighter than the scene actually is. A floor and ceiling stop a fade-to-black or a flash from railing the adaptation.
 
 **Simultaneous contrast masking.** A microscopic dark halo on the shadow side of bright edges, exploiting the eye's own contrast enhancement (the Chevreul illusion) so highlights read as more luminous without changing. Drawn from the smoothed base layer rather than raw pixels, so it's blind to high-frequency noise, and it scales with INTENSITY.
 
-**Configurable Purkinje adaptation.** Simulates the photopic-to-scotopic shift in dark scenes — reduced red sensitivity, a blue-green shadow bias — with separate controls for both and for where the effect starts and ends.
+**Configurable Purkinje adaptation.** Simulates the photopic-to-scotopic shift in dark scenes: reduced red sensitivity and a blue-green shadow bias, with separate controls for both and for where the effect starts and ends.
 
-**Multi-scale local contrast.** The single guided-filter base layer becomes three non-overlapping bands — Micro, Medium, Macro — each independently adjustable and reconstructed by a fast guided filter that derives its coefficients at low resolution and upsamples them, avoiding the halos naive upsampling produces.
+**Multi-scale local contrast.** The single guided-filter base layer becomes three non-overlapping bands, Micro, Medium and Macro, each independently adjustable and reconstructed by a fast guided filter that derives its coefficients at low resolution and upsamples them, avoiding the halos naive upsampling produces.
 
-**Adaptive triangular dithering.** Each channel gets its own decorrelated noise pattern, reshaped from flat to triangular so the noise floor stays steady across a gradient rather than tracking the signal — the actual difference between hiding a band and merely disguising it. The pattern can be interleaved gradient noise (computed on the spot, no files needed) or a stored spatiotemporal blue noise mask (`tools/make_stbn.py`, shipped as `dz_stbn_512x256.png`), which spreads roughly twenty times less low-frequency energy and settles instead of crawling when the camera holds still — the default. A mask on the screen-space slope keeps the grain out of texture and edges, and Dither Strength scales the amplitude; at 1.0 it's tuned to be invisible on its own; the thing to check is whether the bands are gone.
+**Adaptive triangular dithering.** Each channel gets its own decorrelated noise pattern, reshaped from flat to triangular so the noise floor stays steady across a gradient rather than tracking the signal, which is the difference between hiding a band and merely disguising it. The pattern can be interleaved gradient noise (computed on the spot, no files needed) or a stored spatiotemporal blue noise mask (`tools/make_stbn.py`, shipped as `dz_stbn_512x256.png`), which spreads roughly twenty times less low-frequency energy and settles instead of crawling when the camera holds still, and is the default. A mask on the screen-space slope keeps the grain out of texture and edges, and Dither Strength scales the amplitude; at 1.0 it's tuned to be invisible on its own; the thing to check is whether the bands are gone.
 
-**Debanding.** Where dithering stops new banding, debanding repairs banding that's already there, by averaging a wide neighbourhood toward the value a pixel should have had. The hard part is not doing that to real detail: three tests have to agree — the neighbourhood average sits close to the pixel, the samples agree with each other, and, the one that actually separates a band from quiet texture, pixel-to-pixel variation stays low. That last test is read from the source frame, since the question is whether detail was there before the shader touched it. Everything runs in two independent passes with their own settings — Shader Effect for pixels the tone fusion reworked, Source Image for everything it left alone — crossfaded by how far each pixel moved. A shared Correction Limit caps how far any pixel can be nudged, so the repair can only flatten a step and can't quietly erase the contrast the shader just added.
+**Debanding.** Where dithering stops new banding, debanding repairs banding that's already there, by averaging a wide neighbourhood toward the value a pixel should have had. The hard part is not doing that to real detail: three tests have to agree: the neighbourhood average sits close to the pixel, the samples agree with each other, and, the one that actually separates a band from quiet texture, pixel-to-pixel variation stays low. That last test is read from the source frame, since the question is whether detail was there before the shader touched it. Everything runs in two independent passes with their own settings. Shader Effect for pixels the tone fusion reworked, Source Image for everything it left alone, crossfaded by how far each pixel moved. A shared Correction Limit caps how far any pixel can be nudged, so the repair can only flatten a step and can't quietly erase the contrast the shader just added.
 
 **Dynamic intensity.** The tone fusion fades out below a brightness threshold, since very dark scenes have little range left to recover and mostly amplify compression noise there. The ramp starts at the Adaptation Floor rather than black and holds a minimum width, so a low threshold can't collapse into a hard step.
 
 Underneath all of it, the boosted result is soft-clipped in a hue-preserving way: a saturated highlight past display maximum has all three channels scaled down together, desaturating cleanly toward white instead of clipping one channel and shifting hue. The shader is self-contained and needs no external headers.
 
-**Requires:** `ReShade.fxh` only, plus `Textures/dz_stbn_512x256.png` from this repo. Copy that file into your ReShade `Textures` folder along with the shader — ReShade will complain about the missing texture if it isn't there, and since Blue Noise Mask is the default dither pattern, dithering will misbehave until you either copy the file in or switch Dither Pattern to Gradient Noise. No additional shader packs needed.
+**Requires:** `ReShade.fxh` only, plus `Textures/dz_stbn_512x256.png` from this repo. Copy that file into your ReShade `Textures` folder along with the shader. ReShade will complain about the missing texture if it isn't there, and since Blue Noise Mask is the default dither pattern, dithering will misbehave until you either copy the file in or switch Dither Pattern to Gradient Noise. No additional shader packs needed.
 
 #### Settings
 
@@ -153,33 +153,34 @@ Underneath all of it, the boosted result is soft-clipped in a hue-preserving way
 | INTENSITY                      | 0.3             | Overall blend strength between the original frame and the tone-mapped result. 0.0 = no effect.                                                          |
 | Dark Scene Fade                | 0.65            | Fades the tone fusion out in very dark scenes to avoid amplifying compression noise. 0.0 = off (full intensity everywhere), 1.0 = full fade.            |
 | Dark Scene Fade Threshold      | 0.20            | Scene brightness at which the Dark Scene Fade has fully released. The effect ramps smoothly from the Adaptation Floor up to this value, and the ramp is held to a minimum width so it always stays gradual. |
-| Smoothing Radius               | 15.0            | Controls the window size for the guided filter base layer smoothing. Larger values separate coarser structure from detail.                              |
-| Edge Sensitivity               | 0.001           | Epsilon in the guided filter variance calculation. Lower values preserve more edges in the base layer; higher values smooth across them.                |
+| Smoothing Radius               | 13.5            | Window the base layers are smoothed over, in pixels at 1080p, and so the scale of everything treated as local. Wider spreads the shading gradient beside bright objects until it reads as lighting rather than an outline, at almost no cost in detail. It has no interior optimum, so pick it by eye. Range 1 to 30, and past about 20 it stops being local and becomes a global tone curve. Costs the same at any setting. |
+| Edge Sensitivity               | 0.001           | Epsilon in the guided filter. Above it the base follows an edge so the edge cannot halo, below it the base smooths through and texture is extracted. Raising it finds more detail and more rim together. |
 | Micro Contrast Boost           | 0.0             | Amplifies or suppresses fine-scale texture detail and high-frequency local contrast.                                                                    |
 | Medium Contrast Boost          | 0.0             | Amplifies or suppresses medium-scale object contrast and structural detail.                                                                             |
-| Macro Contrast Boost           | 0.0             | Adds large-scale depth contrast and scene separation back into the image. Unlike the other two this one starts at 0 rather than centring there — see the note below. |
+| Macro Contrast Boost           | 0.0             | Adds large-scale depth contrast and scene separation back into the image. Unlike the other two this one starts at 0 rather than centring there, see the note below. |
 | Contrast Shadow Strength       | 1.0             | Intensity of the microscopic dark halo around bright highlights, read as a fraction of INTENSITY. Higher values increase perceived edge contrast without sharpening artifacts. |
+| Detail Limit                   | 0.0             | Ceiling on the local detail term, in stops, on the darkening side only. The detail amplifier grows as a scene darkens, which is where dark rims around bright objects come from. Limiting only the darkening side buys the rim back while highlights keep their glow. 0.0 disables it. |
 | Enable Dithering               | on              | Enables adaptive triangular dithering, per channel, to reduce visible SDR gradient banding.                                                             |
 | Dither Strength                | 1.0             | Dither amplitude in output quantisation steps. 1.0 is the amount the maths asks for and is meant to be invisible on its own; raise it for visible grain. |
 | Dither Pattern                 | Blue Noise Mask | Where the pattern comes from. The mask is spread far more evenly and settles rather than crawling, but needs the texture copied in. Gradient Noise needs no files and is the fallback. |
 | Enable Debanding               | on              | Master switch. Rebuilds gradients that have been quantised into visible steps.                                                                           |
 | Deband Correction Limit        | 2.0             | The furthest any pixel may be moved, in output steps. Keeps a repair from becoming a blur, and stops a wide search from averaging away the local contrast the shader just added. |
 | Deband Split Point             | 1.0             | How far the shader must have moved a pixel, in steps, before it is handed to the Shader Effect settings rather than the Source Image ones.                |
-| Deband Samples                 | 16 samples      | Samples per pass, spread over a disc, shared by both halves. This is what separates a repair from a blur — raise it before raising either threshold.     |
+| Deband Samples                 | 16 samples      | Samples per pass, spread over a disc, shared by both halves. This is what separates a repair from a blur, so raise it before raising either threshold.     |
 | Shader Effect: Enable          | on              | Debanding for pixels the shader reworked. Steps here are ones it opened up.                                                                              |
 | Shader Effect: Threshold       | 1.75            | How far a pixel may sit from its surroundings and still count as flat, in steps of the incoming frame.                                                   |
-| Shader Effect: Radius          | 14.0            | How far the first pass looks, in pixels; later passes reach further. Wants to be wider than the bands themselves.                                        |
+| Shader Effect: Radius          | 13.0            | How far the first pass looks, in pixels; later passes reach further. Wants to be wider than the bands themselves.                                        |
 | Shader Effect: Passes          | 2               | How many times to repeat, each reaching further and judging more strictly.                                                                               |
 | Shader Effect: Detail Guard    | 1.0             | Pixel-to-pixel variation that marks an area as texture and puts it out of reach, in steps. The test that tells a band from fine detail.                   |
 | Source Image: Enable           | on              | Debanding for pixels the shader barely moved. Both the banding and the texture here predate the shader, so it treads lightly.                             |
 | Source Image: Threshold        | 1.65            | As above, but for the untouched half. Set a little under the Shader Effect side, so it still catches unmistakable steps without reaching as far.          |
-| Source Image: Radius           | 13.0            | As above, but for the untouched half.                                                                                                                    |
+| Source Image: Radius           | 12.0            | As above, but for the untouched half.                                                                                                                    |
 | Source Image: Passes           | 1               | As above, but for the untouched half.                                                                                                                    |
 | Source Image: Detail Guard     | 0.85            | Stricter than the Shader Effect side, because the texture at risk here is texture the shader had no hand in. Lower it further if detail is flattened.     |
 | Debug: Visualize Debanding     | off             | Shows what the debander moved, amplified. Black means untouched.                                                                                        |
 | Enable Eye Adaptation          | on              | When enabled, scene brightness is measured each frame and used to drive the tone mapping. When disabled, Manual Exposure is used as a fixed scene mean. |
 | Eye Adaptation Speed           | 0.5             | Smoothing time in seconds when the scene gets brighter (light adaptation). Higher values produce slower, more cinematic transitions.                    |
-| Dark Adaptation Multiplier     | 2.5             | Multiplies the adaptation time when the scene gets darker, so darkening eases in more slowly than brightening. 1.0 = symmetric, 2–4 is realistic.       |
+| Dark Adaptation Multiplier     | 2.5             | Multiplies the adaptation time when the scene gets darker, so darkening eases in more slowly than brightening. 1.0 = symmetric, 2 to 4 is realistic.       |
 | Adaptation Floor               | 0.03            | Lower clamp on the measured scene brightness. Stops a fade-to-black or a wall of shadow from dragging the exposure to the floor. Raising it past the Tonal Neutral Point leaves the Lift sliders inert. |
 | Adaptation Ceiling             | 0.85            | Upper clamp on the measured scene brightness. Stops a white flash from railing the exposure and crushing the scene dark afterwards. Lowering it below the Tonal Neutral Point leaves the Pull sliders inert. |
 | Manual Exposure                | 0.1             | Fixed scene mean when eye adaptation is disabled. Lower values preserve darker scenes.                                                                  |
@@ -188,7 +189,6 @@ Underneath all of it, the boosted result is soft-clipped in a hue-preserving way
 | Adaptation Trigger Radius      | 8.0             | Mip level sampled from the luminance texture to estimate average scene brightness. Higher values cover more of the screen.                              |
 | Tonal Neutral Point            | 0.30            | Scene brightness treated as "average", where neither Lift nor Pull does anything. Below it the Lift sliders apply, above it the Pull sliders apply. Governs both groups, and wants to sit inside the Adaptation Floor and Ceiling. |
 | Tonal Response Span            | 1.5             | How far a scene has to sit from the Tonal Neutral Point, in stops, before Lift or Pull reaches full travel. Narrow values make the response snap on near the pivot; wide values spread it out so only extremes reach full travel. |
-| Scale Tonal Adaptation with INTENSITY | on       | When enabled, the Lift and Pull curves scale with INTENSITY, so INTENSITY 0 is a true no-op whatever the six sliders are set to. Unlike the tints they do not also scale with the Dark Scene Fade, so a night scene can have the tone fusion released and its tonal balance still set. |
 | Highlight Lift                 | 1.0             | Highlight recovery strength when the scene is darker than average. 1.0 = neutral. Values above 1.0 amplify brightening; values below 1.0 suppress it.   |
 | Midtone Lift                   | 1.0             | Midtone recovery strength when the scene is darker than average. Uses the same scale as Highlight Lift.                                                 |
 | Shadow Lift                    | 1.0             | Shadow recovery strength when the scene is darker than average. Lower values preserve deeper blacks.                                                    |
@@ -196,7 +196,6 @@ Underneath all of it, the boosted result is soft-clipped in a hue-preserving way
 | Midtone Pull                   | 1.0             | Midtone suppression strength when the scene is brighter than average.                                                                                   |
 | Shadow Pull                    | 1.0             | Shadow suppression strength when the scene is brighter than average.                                                                                   |
 | Enable Split Toning            | on              | Toggles adaptive warm highlight tinting and cool shadow tinting.                                                                                        |
-| Scale Tints with INTENSITY     | on              | When enabled, tint strength scales with INTENSITY and fades with the Dark Scene Fade.                                                                   |
 | Highlight Tint Tone            | 0.5             | Hue of the warm highlight tint. 0.0 = golden yellow, 0.5 = warm orange, 1.0 = deep amber.                                                               |
 | Shadow Tint Tone               | 0.5             | Hue of the cool shadow tint. 0.0 = cyan/teal, 0.5 = cool blue, 1.0 = deep indigo.                                                                       |
 | Highlight Tint Base Intensity  | 0.15            | Maximum opacity of the warm tint at the strongest contrast ratio.                                                                                       |
@@ -204,7 +203,6 @@ Underneath all of it, the boosted result is soft-clipped in a hue-preserving way
 | Highlight Contrast Threshold   | 1.25            | How much brighter than the scene average a pixel must be before the warm tint is applied.                                                               |
 | Shadow Contrast Threshold      | 0.70            | How much darker than the scene average a pixel must be before the cool tint is applied.                                                                 |
 | Enable Purkinje Effect         | on              | Simulates the Purkinje shift by reducing red sensitivity and introducing a subtle blue-green bias in dark scenes.                                       |
-| Scale Purkinje with INTENSITY  | on              | When enabled, the scotopic shift scales with INTENSITY, so INTENSITY 0 is a true no-op rather than still shifting night colour. Like the tonal curves, and unlike the tints, it does not also scale with the Dark Scene Fade. |
 | Purkinje Red Reduction         | 0.10            | Pulls the red channel toward luminance in dark scenes. Worth knowing that this desaturates rather than removing red: in a blue-cast night scene red sits below luminance, so raising this lifts red and washes the shift out. Reach for the two bias sliders to strengthen the effect, and use this only to take colour out. |
 | Purkinje Green Bias            | 0.010           | Controls the strength of the green bias introduced by the Purkinje effect.                                                                              |
 | Purkinje Blue Bias             | 0.012           | Controls the strength of the blue bias introduced by the Purkinje effect.                                                                               |
@@ -215,15 +213,15 @@ Underneath all of it, the boosted result is soft-clipped in a hue-preserving way
 
 #### Notes on the Lift and Pull sliders
 
-All six are neutral at their defaults, so loading the shader unadjusted gives output identical to the original PHDR. They're for deliberate tuning, not preset-style defaults. With **Scale Tonal Adaptation with INTENSITY** on, which is the default, they also scale with the main slider, so INTENSITY 0 leaves the frame untouched no matter where the six sit. In consistently dark games, push Highlight Lift and Shadow Lift above 1.0 together to deepen shadowed regions. In bright outdoor scenes, Highlight Pull above 1.0 recovers the sensation of blown highlights without haze, and Shadow Pull below 1.0 resists darkening if you want to keep the shadow detail the fusion already found.
+All six are neutral at their defaults, so loading the shader unadjusted gives output identical to the original PHDR. They're for deliberate tuning, not preset-style defaults. Like everything else here they scale with INTENSITY, so INTENSITY 0 leaves the frame untouched no matter where the six sit. In consistently dark games, push Highlight Lift and Shadow Lift above 1.0 together to deepen shadowed regions. In bright outdoor scenes, Highlight Pull above 1.0 recovers the sensation of blown highlights without haze, and Shadow Pull below 1.0 resists darkening if you want to keep the shadow detail the fusion already found.
 
-Which group runs depends on the **Tonal Neutral Point**: scenes darker than it use Lift, brighter use Pull. It defaults to 0.30 rather than the midpoint because scene brightness is a geometric mean in gamma space, which reads well below 0.5 even outdoors — a 0.5 pivot would leave Pull effectively unreachable.
+Which group runs depends on the **Tonal Neutral Point**: scenes darker than it use Lift, brighter use Pull. It defaults to 0.30 rather than the midpoint because scene brightness is a geometric mean in gamma space, which reads well below 0.5 even outdoors, and a 0.5 pivot would leave Pull effectively unreachable.
 
 How hard either group pushes depends on how far the scene sits from the pivot, counted in stops over the **Tonal Response Span**, identical above and below it. Moving the pivot away from your usual scene brightness therefore strengthens the response as well as choosing the group. Direction comes from the sliders alone: above 1.0 brightens, below darkens. Raise the pivot with Lift under 1.0 and a dark scene gets darker, not brighter, so if the image moves the wrong way, check which side of 1.0 the relevant sliders are on.
 
 Stops rather than plain brightness, because the scene metric is a geometric mean. Two scenes an equal ratio apart then get an equal response wherever they sit on the scale, which is what lets one setting behave the same way across scenes of different brightness. Measured against a linear span the same sliders acted more than seven times harder on a bright afternoon than on an overcast one, with no value that behaved consistently across either.
 
-The pivot wants to sit comfortably inside the **Adaptation Floor** and **Adaptation Ceiling**, because those two cap what the scene metric can ever report. Park the pivot near the floor and a dark scene has barely any distance left to travel on the Lift side, so Lift only reaches a fraction of its response and needs a higher setting to push as hard; the same holds for Pull near the ceiling. Move the pivot past either clamp and that group stops acting altogether — with the floor at 0.30 and the pivot at 0.20, nothing can ever measure below average, and the three Lift sliders sit there doing nothing. It's consistent behaviour rather than a failure, but it's quiet about it, so it's worth checking the two clamps first if a group of sliders seems to have no effect.
+The pivot wants to sit comfortably inside the **Adaptation Floor** and **Adaptation Ceiling**, because those two cap what the scene metric can ever report. Park the pivot near the floor and a dark scene has barely any distance left to travel on the Lift side, so Lift only reaches a fraction of its response and needs a higher setting to push as hard; the same holds for Pull near the ceiling. Move the pivot past either clamp and that group stops acting altogether: with the floor at 0.30 and the pivot at 0.20, nothing can ever measure below average, and the three Lift sliders sit there doing nothing. It's consistent behaviour rather than a failure, but it's quiet about it, so it's worth checking the two clamps first if a group of sliders seems to have no effect.
 
 Both sides share one response shape over one span, so a Lift of 1.2 one stop below neutral answers a Pull of 1.2 one stop above it exactly, and moving the pivot slides that response along rather than stretching it. The shape is flat at the neutral point and flat again at full travel, so a scene crossing the pivot doesn't kick and the response steadies once a scene is properly dark or properly bright, which is where scenes spend most of their time. That's what stops a slight shift in a dark scene producing a sudden jump.
 
@@ -231,9 +229,15 @@ The tonal delta is weight-limited so the curve can't fold back on itself. Oppose
 
 #### Notes on the contrast sliders
 
-**Macro Contrast Boost** runs 0 to 1 rather than -1 to 1 like Micro and Medium. The tone mapping divides coarse structure out of the reconstruction already, so 0 is the flat end of the range and the slider adds large-scale depth back on top. There's nothing below 0 to suppress — a negative gain would subtract past flat and invert the band, swapping which side of a large edge reads brighter.
+**Macro Contrast Boost** runs 0 to 1 rather than -1 to 1 like Micro and Medium. The tone mapping divides coarse structure out of the reconstruction already, so 0 is the flat end of the range and the slider adds large-scale depth back on top. There's nothing below 0 to suppress, and a negative gain would subtract past flat and invert the band, swapping which side of a large edge reads brighter.
 
 **Contrast Shadow Strength** sets the intensity of the dark halos around bright objects. An internal scaling factor boosts subtle local detail for responsiveness and a hard ceiling stops edges going pitch black or producing harsh artifacts. It's read as a fraction of INTENSITY, so the halo fades with the main effect and with the Dark Scene Fade.
+
+**Smoothing Radius**, both deband radii and the metering mip are authored against a 1080 line screen and converted at the point of use, so a preset covers the same fraction of the picture on any monitor. Everything else here is either per-pixel or derived from Smoothing Radius, so the contrast bands, the tonal curves, the tints and Purkinje follow it without needing conversion of their own. The dither is deliberately left in output pixels: its amplitude is in quantisation steps and it exists to break up the pixel grid.
+
+A preset authored on a 1200 line screen is ported by dividing by 1200/1080, so `Radius` 15 becomes 13.5, `Deband Effect Radius` 14 becomes 12.6 and `Deband Source Radius` 13 becomes 11.7. `Trigger Radius` is a mip index and shifts by `log2(1200/1080)` instead, 8 becoming 7.848. `Edge Sensitivity` is a variance threshold in luminance and does not scale.
+
+`Smoothing Radius` defaults to the ported 13.5 so an untouched shader matches what 15 used to do on a 1200 line screen. The deband radii and the metering mip are left at round numbers instead, since the difference is a fraction of a pixel and a magic default is worse than a slightly different one.
 
 The shader also keeps the Purkinje effect and split toning from stacking in deep shadows, so shadow colour shifts stay natural instead of turning muddy.
 
