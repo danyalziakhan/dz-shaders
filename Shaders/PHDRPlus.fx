@@ -1126,7 +1126,13 @@ float SampleAvgLuma()
 // closely than the medium one and flip the sign of the macro band.
 float2 MomentsToAB(float2 m, float eps)
 {
-    float var = m.y - m.x * m.x;
+    // Clamped because the moments live in half-float. In flat sky E[I^2] is
+    // quantised far coarser than the true variance, so the difference can come
+    // out slightly negative, and with the micro epsilon that close to zero the
+    // division below blows up on single pixels. Those land in the micro base,
+    // cancel only when the micro and medium gains match, and otherwise show as
+    // isolated black or white specks that crawl with the image.
+    float var = max(m.y - m.x * m.x, 0.0);
     float a   = var / (var + eps);
     return float2(a, m.x * (1.0 - a));
 }
