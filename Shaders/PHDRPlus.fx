@@ -884,11 +884,13 @@ namespace DZPHDR
         Texture = TexTempMeansMicro;
     };
 
+    // Mips so the Macro Soft Area Guard can read a averaged over the macro window.
     texture TexStatsMicro
     {
-        Width  = GW;
-        Height = GH;
-        Format = RG16F;
+        Width     = GW;
+        Height    = GH;
+        Format    = RG16F;
+        MipLevels = 6;
     };
 
     sampler sTexStatsMicro
@@ -965,6 +967,16 @@ namespace DZPHDR
         MinFilter = POINT;
         MagFilter = POINT;
         MipFilter = POINT;
+    };
+
+    // The game's HUD, bound by the HUD Guard add-on: alpha is how much of the
+    // pixel the HUD covers. Unbound it is ReShade's 1x1 empty texture, whose
+    // alpha reads as 1, so the size is what says whether there is a mask.
+    texture TexHudMask : HUDMASK;
+
+    sampler sTexHudMask
+    {
+        Texture = TexHudMask;
     };
 
     texture TexLastParams
@@ -1072,6 +1084,14 @@ float3 SampleBlueNoise(int2 pixel, int slice)
     return (raw * 255.0 + 0.5) / 256.0;
 }
 
+// How much of this pixel is HUD, 0 without HUD Guard or in a frame with no HUD.
+float HudMask(float2 uv)
+{
+    if (tex2Dsize(sTexHudMask).x < 2)
+        return 0.0;
+    return saturate(tex2Dlod(sTexHudMask, float4(uv, 0.0, 0.0)).a);
+}
+
 void PS_Luma(VS_OUTPUT input, out float luma : SV_Target)
 {
     luma = GetLuminance(tex2D(sTexColor, input.uv).rgb);
@@ -1083,6 +1103,13 @@ void PS_LumaLog(VS_OUTPUT input, out float logLuma : SV_Target)
     // letting shadows weigh heavily in the mean.
     float luma = tex2Dlod(sTexLuma, float4(input.uv, 0, 0)).r;
     logLuma = log(max(luma, 1e-4));
+
+    // Under the HUD, last frame's reading instead. Pixels that hold the running
+    // average cannot move it, so the adaptation settles on the scene alone.
+    float hud = HudMask(input.uv);
+    [branch]
+    if (hud > 0.0)
+        logLuma = lerp(logLuma, log(max(tex2Dfetch(sTexLastAdapt, 0).g, 1e-4)), hud);
 }
 
 float PS_Luma512(VS_OUTPUT input) : SV_Target
@@ -1325,7 +1352,7 @@ void PS_GuidedFilterResult(VS_OUTPUT input, out float4 base_layers : SV_Target)
     float2 ab_medium = tex2D(sTexStatsMedium, input.uv).rg;
     float base_medium = ab_medium.x * I + ab_medium.y;
 
-    float2 ab_micro = tex2D(sTexStatsMicro, input.uv).rg;
+    float2 ab_micro = tex2Dlod(sTexStatsMicro, float4(input.uv, 0, 0)).rg;
     float base_micro = ab_micro.x * I + ab_micro.y;
 
     float2 ab_macro = tex2D(sTexStatsMacro, input.uv).rg;
@@ -1335,8 +1362,15 @@ void PS_GuidedFilterResult(VS_OUTPUT input, out float4 base_layers : SV_Target)
     // its Epsilon, near 1 on texture. The medium scale reads a cloud's own
     // outline against the sky as structure; the micro scale does not, because
     // a soft cloud has no fine texture even at its edge, while hills, rock and
-    // sea do. Upsampled from low resolution, so it describes a region.
-    base_layers = float4(base_micro, base_medium, base_macro, ab_micro.x);
+    // sea do.
+    //
+    // Averaged over the macro window rather than read per pixel. The macro band
+    // reaches that far from an edge, so a guard any sharper than it cuts the
+    // band off a few pixels out and leaves a bright ring round every tree and
+    // statue against a night sky.
+    float guard_lod = MipForStride(ToPixels(Radius) * 3.0 / float(SCALE));
+    float soft_a = tex2Dlod(sTexStatsMicro, float4(input.uv, 0, guard_lod)).r;
+    base_layers = float4(base_micro, base_medium, base_macro, soft_a);
 }
 
 // Pre-filter length. Long enough to swallow a flickering torch or fire, short
@@ -1436,12 +1470,11 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // In a soft area with no structure of its own, a cloud or an out of focus
     // background, macro contrast darkens the whole patch against the wider
     // sky, and because the bases follow its outline it goes down as a block.
-    // Scale back only where the micro scale saw no fine texture. Read from the
-    // shader on a cloudy Odyssey frame: clear sky 0.52 and clouds 0.56 median,
-    // the game's own fine noise keeping them off zero; hills 0.91, rock 0.97,
-    // sea 0.91.
+    // Scale back only where the micro scale saw no fine texture. Medians read
+    // from the shader on Odyssey: clouds 0.43, night sky 0.24, night stone
+    // wall 0.66, daylight ground 0.88.
     // The band is entirely added contrast, so this removes nothing the image had.
-    macro_gain *= 1.0 - Contrast_Macro_Guard * (1.0 - smoothstep(0.65, 0.88, BasesA.a));
+    macro_gain *= 1.0 - Contrast_Macro_Guard * (1.0 - smoothstep(0.55, 0.68, BasesA.a));
 
     float micro_gain = 1.0 + Contrast_Micro;
 
@@ -1758,7 +1791,15 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
     float4 centre = tex2D(sTexCombined, input.uv);
     float3 blended = centre.rgb;
 
+    // Wherever the game drew its HUD, the pixels as they arrived. On an HDR
+    // swap chain that is the HUD as PHDR Source tone mapped it, so it follows
+    // the same exposure as the scene; its debanding and grain come after.
+    float hud = HudMask(input.uv);
+
 #if PHDRP_HDR_CHAIN
+    [branch]
+    if (hud > 0.0)
+        blended = lerp(blended, tex2D(sTexColor, input.uv).rgb, hud);
     return blended;
 #else
     // Debug views arrive with alpha 0 and pass straight through.
@@ -1876,6 +1917,10 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
     {
         blended = saturate(blended + applied);
     }
+
+    [branch]
+    if (hud > 0.0 && !passthrough)
+        blended = lerp(blended, tex2D(sTexColor, input.uv).rgb, hud);
 
     return blended;
 #endif

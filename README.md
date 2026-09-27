@@ -106,13 +106,17 @@ The curve is limited so it can't fold back on itself. Opposed settings, a lowere
 
 **Macro** runs 0 to 1 rather than -1 to 1. It's a bare gain on the large-scale band, so 0 adds none and 1 passes the band at full strength. A negative value would invert the band and swap which side of a large edge reads brighter.
 
-**Macro Soft Area Guard** and **Contrast Shadow Threshold** are both off by default and aimed at the same content: soft clouds and out of focus backgrounds. Macro darkens a soft patch as a block against the wider sky, and the halo turns the small noisy dips in a blurred area into dark grain. The guard reads whether the finest scale found any texture, so hills, rock and sea keep their macro contrast; the threshold is subtracted before the halo is drawn, so it grows from zero with no step and edges, which dip much further, keep it. Raise them if a preset leaves skies blotchy.
+**Macro Soft Area Guard** and **Contrast Shadow Threshold** are both off by default and aimed at the same content: soft clouds and out of focus backgrounds. Macro darkens a soft patch as a block against the wider sky, and the halo turns the small noisy dips in a blurred area into dark grain. The guard reads whether the finest scale found any texture across the width macro acts over, so hills, rock and sea keep their macro contrast and no bright ring forms round a tree or statue against a night sky; the threshold is subtracted before the halo is drawn, so it grows from zero with no step and edges, which dip much further, keep it. Raise them if a preset leaves skies blotchy.
 
 #### Resolution
 
 Smoothing Radius, both deband radii and the metering mip are authored at 1080 lines and converted at the point of use, so a preset covers the same fraction of the picture on any monitor. The contrast bands take their scale from Smoothing Radius, and the tonal curves, tints and Purkinje work per pixel, so nothing else needs converting. The dither stays in output pixels on purpose, since it exists to break up the pixel grid.
 
 A preset authored on a 1200 line screen before this is ported by dividing by 1200/1080: Radius 15 becomes 13.5, Deband Effect Radius 14 becomes 12.6 and Deband Source Radius 13 becomes 11.7. Trigger Radius is a mip index and shifts by `log2(1200/1080)` instead, 8 becoming 7.848. Edge Sensitivity doesn't scale.
+
+#### HUD
+
+With the [HUD Mask](https://github.com/danyalziakhan/hudmask) add-on installed, PHDR Plus leaves the game's HUD as the game drew it and keeps it out of the eye adaptation, so a bright compass or quest marker no longer moves the exposure. Without the add-on nothing changes. PHDR Source still tone maps the HUD in HDR, since it has to bring the HUD's brightness down to SDR like the rest of the frame.
 
 ---
 
@@ -137,17 +141,17 @@ Requires ReShade 5.1 or later for `BUFFER_COLOR_SPACE`, and the same blue noise 
 | Setting | Default | What it does |
 |---|---|---|
 | Display White | 450 | Nits that SDR white stands for. Higher leaves more room for highlights and darkens the picture. |
-| Exposure | 0.2 | Stops. The white point moves with it, so highlights keep their detail. |
-| Auto Exposure | 0.2 | How far the average is pulled toward the Key. 0 keeps the game's own exposure. |
+| Exposure | 0.6 | Stops. The white point moves with it, so highlights keep their detail. With the defaults below, Odyssey lands within 0.1 stops of the game's SDR frame by day and by night. |
+| Auto Exposure Brighten / Darken | 0.2 / 0.2 | How far a scene below or above the Key is pulled toward it. At 0.2 the darkest Odyssey nights sit at the game's SDR brightness; 0.35 already lifts them 0.4 stops above it. 0 keeps the game's own exposure. |
 | Auto Exposure Key | 8 | Average brightness in nits that Auto Exposure leaves alone. |
 | Highlight Adaptation | 0.35 | Darkens the picture when a bright light fills the view, the sun or a lamp at night. A log average barely moves for a small bright area, so this meters a centre-weighted linear level alongside it. |
 | Adapt to Brighter / Darker | 0.4 / 1.5 | Seconds the exposure takes to settle in each direction. |
 | Highlight Colour | 1.0 | 0 lets bright colours bleach toward white as an SDR grade does, 1 keeps their hue and saturation. |
 | Saturation | 1.0 | Colour gain after tone mapping. |
-| Shadow Contrast | 1.5 | Steepens the stops just below the scene average, as an SDR grade does. On Odyssey the SDR shadows held 15% more texture than the HDR frame at the same brightness. 0 is off. |
+| Shadow Contrast | 0 | Steepens the stops just below the scene average, as an SDR grade does. At 0 the Odyssey HDR shadows already match the game's SDR frame in texture and level, and each step up pushes more of the frame toward black: 1.5 puts 11% more of a night frame below code 12. Above 0.5 it reads as crushed. |
 | Shadow Span | 5.0 | How far below the average, in stops, Shadow Contrast reaches before handing the deepest shadows back unchanged. It shrinks on its own in a dim scene so the dip can't run into black. |
-| Shadow Lift | 1.5 | Raises the deepest shadows, which BT.2390 passes through at their true brightness. Black stays black. |
-| Debanding: HDR Frame | on | Many games' HDR output is already banded, each channel stepping by 1 to 2%, which tone mapping turns into coloured contours. This runs on the log of each channel before tone mapping, with brightness and colour handled separately. Threshold 5, Radius 32, Passes 3, Correction Limit 6, in steps of 4%. |
+| Shadow Lift | 0 | Raises the deepest shadows, which BT.2390 passes through at their true brightness. Black stays black. It is a gain that falls with brightness, so it flattens texture in the dark tones; use Exposure to brighten a scene instead. |
+| Debanding: HDR Frame | on | Many games' HDR output is already banded, each channel stepping by 1 to 2%, which tone mapping turns into coloured contours. This runs on the log of each channel before tone mapping, with brightness and colour handled separately. Its Detail Guard judges texture over a 5x5 area rather than one pixel's neighbours, so faint stone at night is left alone while a banded sky is not, and passes after the first read a half-resolution copy, which bands that wide never notice. Threshold 5, Radius 32, Passes 3, Correction Limit 6, in steps of 4%. |
 | Colour Deband | 1.0 | How much harder colour is smoothed than brightness. Raise it if skies show coloured contours. |
 | Debanding: SDR Frame | on | The PHDR Plus debander, run here after PHDR Plus, with the same Shader Effect and Source Image halves and the same defaults. |
 | Enable Dithering | on | For the 8-bit cut on the way to the monitor. |

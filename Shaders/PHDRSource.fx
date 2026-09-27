@@ -77,16 +77,26 @@ uniform float Exposure <
     ui_category = "Tone Mapping";
     ui_tooltip = "Brightens or darkens the HDR frame, in stops. The white point moves\n"
                  "with it, so highlights keep their detail.";
-> = 0.2;
+> = 0.6;
 
-uniform float AutoExposure <
+uniform float AutoExposureBrighten <
     ui_type = "slider";
     ui_min = 0.0; ui_max = 1.0;
     ui_step = 0.01;
-    ui_label = "Auto Exposure";
+    ui_label = "Auto Exposure: Brighten";
     ui_category = "Tone Mapping";
-    ui_tooltip = "How far the frame's average brightness is pulled toward the Key.\n"
-                 "0 keeps the game's own exposure, 1 holds every scene at the Key.";
+    ui_tooltip = "How far a scene darker than the Key is brightened toward it. 0 keeps\n"
+                 "the game's own exposure, 1 lifts every dark scene to the Key.";
+> = 0.2;
+
+uniform float AutoExposureDarken <
+    ui_type = "slider";
+    ui_min = 0.0; ui_max = 1.0;
+    ui_step = 0.01;
+    ui_label = "Auto Exposure: Darken";
+    ui_category = "Tone Mapping";
+    ui_tooltip = "How far a scene brighter than the Key is darkened toward it. 0 keeps\n"
+                 "the game's own exposure, 1 holds every bright scene at the Key.";
 > = 0.2;
 
 uniform float AutoExposureKey <
@@ -155,7 +165,7 @@ uniform float ShadowContrast <
     ui_category = "Tone Mapping";
     ui_tooltip = "Steepens the tones below the scene's average brightness, the way an\n"
                  "SDR grade does, for more texture in the shadows. 0 is off.";
-> = 1.5;
+> = 0.0;
 
 uniform float ShadowSpan <
     ui_type = "slider";
@@ -175,7 +185,7 @@ uniform float ShadowLift <
     ui_category = "Tone Mapping";
     ui_tooltip = "Raises the deepest shadows, which the tone curve otherwise passes\n"
                  "through at their true brightness. Black stays black. 0 is off.";
-> = 1.5;
+> = 0.0;
 
 uniform bool EnableHdrDeband <
     ui_label = "Enable";
@@ -464,12 +474,14 @@ namespace PHDRSource
 
 #if PHDRS_ACTIVE
     // The game's frame decoded to scRGB once, with invalid pixels repaired, so
-    // the debander's many taps neither decode PQ again nor read a NaN.
+    // the debander's many taps neither decode PQ again nor read a NaN. The
+    // second mip is for the debander's wider passes.
     texture TexSource
     {
-        Width  = BUFFER_WIDTH;
-        Height = BUFFER_HEIGHT;
-        Format = RGBA16F;
+        Width     = BUFFER_WIDTH;
+        Height    = BUFFER_HEIGHT;
+        Format    = RGBA16F;
+        MipLevels = 2;
     };
 
     sampler sTexSource
@@ -760,7 +772,12 @@ static const float HighlightFreeStops = 1.0;
 
 float GainStops(float4 stats)
 {
-    float auto_ev = AutoExposure * log2(AutoExposureKey / exp(stats.y));
+    // Separate strengths either side of the Key, so dark scenes can be lifted
+    // toward it without pulling daylight down by the same measure. Exposure
+    // scales every tone alike and keeps texture, where a shadow curve that
+    // lifts the dark end compresses it.
+    float to_key  = log2(AutoExposureKey / exp(stats.y));
+    float auto_ev = to_key * (to_key > 0.0 ? AutoExposureBrighten : AutoExposureDarken);
     float lead    = max((stats.z - stats.y) / 0.6931472 - HighlightFreeStops, 0.0);
     return Exposure + clamp(auto_ev - HighlightAdaptation * lead, -AutoMaxStops, AutoMaxStops);
 }
@@ -789,13 +806,15 @@ float3 ToneMap(float3 scrgb, float4 stats)
     float3 c        = lerp(per_channel, hue_kept, HighlightColour) / white;
 
     // An SDR grade is steeper in the shadows than BT.2390, which passes them
-    // through unchanged. On Odyssey the game's SDR shadows held 15% more
-    // texture than its HDR frame at the same brightness, at every scale, so it
-    // is a curve and not sharpening. This steepens the stops just below the
-    // scene average and hands the slope back further down, so the average and
-    // the deepest shadows both stay where they were. With x the stops below
-    // the average over Shadow Span, the offset is -contrast * span * x^2
-    // exp(-x^2): no crease at the average, the deepest dip one span down.
+    // through unchanged. With Shadow Lift at 0 and Exposure doing the
+    // brightening, Odyssey's HDR shadows already match its SDR frame, and each
+    // step of this pushes more of the frame toward black, so it is off by
+    // default and there for games that grade harder. It steepens the stops
+    // just below the scene average and hands the slope back further down, so
+    // the average and the deepest shadows both stay where they were. With x
+    // the stops below the average over Shadow Span, the offset is -contrast *
+    // span * x^2 exp(-x^2): no crease at the average, the deepest dip one span
+    // down.
     // Monotonic up to about 2.5.
     //
     // Stops from the average say nothing about how close a pixel is to black.
@@ -851,9 +870,9 @@ float3 SoftLimit(float3 v, float limit)
 static const float BandStep  = 0.04;  // log units per step
 static const float BandFloor = 1e-4;  // scRGB; below this a ratio means nothing
 
-float3 LogScRgb(float2 uv)
+float3 LogScRgb(float2 uv, float lod = 0.0)
 {
-    return log(clamp(ReadScRgb(uv), BandFloor, 65504.0));
+    return log(clamp(tex2Dlod(sTexSource, float4(uv, 0.0, lod)).rgb, BandFloor, 65504.0));
 }
 
 float3 Deband(float2 uv, float3 centre, float jitter, int taps)
@@ -883,9 +902,28 @@ float3 Deband(float2 uv, float3 centre, float jitter, int taps)
     float guard_l = 1.0, guard_c = 1.0;
     if (HdrDebandDetail > 0.0)
     {
-        float measured_l = hf_l * 0.25 / BandStep;
+        // Brightness is judged by the spread over a 5x5 area, not by the step
+        // to the four neighbours. A band's dithered edge is a thin line in a
+        // flat plateau, so over an area it averages out; texture varies
+        // everywhere. The per-pixel test had to sit high to let that dither
+        // through, and faint texture, dark stone at night above all, fell
+        // under it and was smoothed. Measured in 4% steps on Odyssey: banded
+        // sky 0.45 at the 90th percentile, night stone, frescoes and skin 0.9
+        // to 1.1 at the 10th.
+        float s = 0.0, s2 = 0.0;
+        [unroll]
+        for (int y = -1; y <= 1; y++)
+        {
+            [unroll]
+            for (int x = -1; x <= 1; x++)
+            {
+                float v = dot(LogScRgb(uv + float2(x, y) * 2.0 * ps), third);
+                s += v; s2 += v * v;
+            }
+        }
+        float spread     = sqrt(max(s2 / 9.0 - (s / 9.0) * (s / 9.0), 0.0)) / BandStep;
         float measured_c = max(max(hf_c.r, hf_c.g), hf_c.b) * 0.25 / (BandStep * cm);
-        guard_l = 1.0 - smoothstep(HdrDebandDetail * 0.5, HdrDebandDetail, measured_l);
+        guard_l = 1.0 - smoothstep(HdrDebandDetail * 0.6, HdrDebandDetail, spread);
         guard_c = 1.0 - smoothstep(HdrDebandDetail * 0.5, HdrDebandDetail, measured_c);
     }
 
@@ -904,6 +942,12 @@ float3 Deband(float2 uv, float3 centre, float jitter, int taps)
         float bound = HdrDebandThreshold * BandStep / float(i);
         float angle = (jitter + float(i) * 0.618034) * 6.2831853;
 
+        // Past the first pass the taps land 64 px and more apart, scattered by
+        // the jitter, and nearly every one missed the cache: this was over half
+        // the cost of the whole chain. Bands that wide lose nothing at half
+        // resolution. Measured on Odyssey the output moved a quarter as much as
+        // it already does from one frame's jitter to the next, for 1 ms at 1200p.
+        float  lod     = i > 1 ? 1.0 : 0.0;
         float  bound_c = bound * cm;
         float  sum_w = 0.0, sum_l = 0.0, sumsq_l = 0.0;
         float3 sum_c = 0.0, sumsq_c = 0.0;
@@ -919,7 +963,7 @@ float3 Deband(float2 uv, float3 centre, float jitter, int taps)
             float  a  = angle + float(k) * 2.39996323;
             float2 at = uv + float2(cos(a), sin(a)) * (r_i * sqrt(t)) * ps;
 
-            float3 d   = LogScRgb(at) - lc;
+            float3 d   = LogScRgb(at, lod) - lc;
             float  d_l = dot(d, third);
             float3 d_c = d - d_l;
             float  w   = (1.0 - smoothstep(bound, bound * 2.0, abs(d_l)))
