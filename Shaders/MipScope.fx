@@ -1,41 +1,23 @@
-// MipScope.fx - Mipmap & Luminance Inspector
+// MipScope.fx: mipmap and luminance inspector
 // Version: 1.0
 // Author:  Danyal Zia Khan
 // License: MIT
 //
-// A standalone ReShade debug tool for visualizing how mipmap
-// levels and downsampled texture sizes affect luminance.
-// Useful for understanding any eye adaptation or auto-exposure
-// shader that uses mipmapped luma textures.
+// Shows what an eye adaptation shader actually reads when it samples one mip
+// of a luminance texture, at full resolution or at a fixed downsampled size.
 //
-// Requires: ReShade 6.x, ReShade.fxh only.
-//
-// Modes:
-//   0 - Fullscreen Mip View   : stretch a chosen mip to fill the screen
-//   1 - Mip Chain Grid        : display all mip levels simultaneously in a grid
-//   2 - Sample Region Overlay : highlight the screen region a texel covers
-//   3 - Luminance Heatmap     : false-color luminance visualization
+// Requires ReShade 6.x and ReShade.fxh.
 
 #include "ReShade.fxh"
-
-// UI
 
 uniform int DebugMode <
     ui_type    = "combo";
     ui_label   = "Debug Mode";
-    ui_tooltip = "Select which visualization to display.\n\n"
-                 "0 - Fullscreen Mip View:\n"
-                 "    Stretches the selected mip level to fill the screen.\n\n"
-                 "1 - Mip Chain Grid:\n"
-                 "    Shows all mip levels simultaneously in a 4-column grid.\n"
-                 "    The selected Mip Level cell is highlighted in blue.\n\n"
-                 "2 - Sample Region Overlay:\n"
-                 "    Draws a box on the scene showing the approximate screen\n"
-                 "    region the sampled texel covers at the selected mip.\n"
-                 "    The last valid mip always covers 100% of the screen —\n"
-                 "    that is correct: at that level the texture is 1x1.\n\n"
-                 "3 - Luminance Heatmap:\n"
-                 "    Maps luminance to a false-color ramp.";
+    ui_tooltip = "0: the selected mip stretched over the screen.\n"
+                 "1: every mip in a grid, the selected one tinted blue.\n"
+                 "2: the scene, with a box over the area one texel of the\n"
+                 "   selected mip covers.\n"
+                 "3: luminance in false colour.";
     ui_items   = "0 - Fullscreen Mip View\0"
                  "1 - Mip Chain Grid\0"
                  "2 - Sample Region Overlay\0"
@@ -45,22 +27,8 @@ uniform int DebugMode <
 uniform int TexturePreset <
     ui_type    = "combo";
     ui_label   = "Texture Size";
-    ui_tooltip = "Internal luma texture resolution to inspect.\n\n"
-                 "Full Resolution uses your actual screen dimensions.\n"
-                 "Fixed sizes simulate how downsampled luma textures behave.\n\n"
-                 "Mip level counts per preset:\n"
-                 "  Full Res 1080p : 11 levels (indices 0-10)\n"
-                 "  Full Res 1440p : 12 levels (indices 0-11)\n"
-                 "  512 x 512      : 10 levels (indices 0-9)\n"
-                 "  256 x 256      :  9 levels (indices 0-8)\n"
-                 "  128 x 128      :  8 levels (indices 0-7)\n"
-                 "   64 x 64       :  7 levels (indices 0-6)\n\n"
-                 "The last valid mip of any texture is 1x1 pixel, which\n"
-                 "by definition represents the average of the entire image.\n"
-                 "Requesting a mip beyond the chain (e.g. mip 8 on a\n"
-                 "256x256 texture) is clamped by the GPU to the last valid\n"
-                 "level — this is normal GPU behavior and is what real\n"
-                 "shaders do when they over-request mip levels.";
+    ui_tooltip = "Luma texture to inspect. Full Resolution matches the screen;\n"
+                 "the fixed sizes show how a downsampled luma texture behaves.";
     ui_items   = "Full Resolution\0"
                  "512 x 512\0"
                  "256 x 256\0"
@@ -68,31 +36,21 @@ uniform int TexturePreset <
                  "64 x 64\0";
 > = 0;
 
-// Slider max is 11 — the highest valid mip index across all presets
-// (Full Res 1440p uses indices 0-11). Lower presets have shorter chains;
-// values above their max are GPU-clamped to their last valid level,
-// and the grid highlight reflects this by tinting the last real cell.
+// 11 is the last mip of a full resolution chain on any screen under 4096
+// pixels wide. Shorter chains clamp, which is part of what the tool shows.
 uniform int MipLevel <
     ui_type    = "slider";
     ui_label   = "Mip Level";
-    ui_tooltip = "Which mip level to display/highlight.\n\n"
-                 "Valid ranges per preset (values above these are GPU-clamped to last):\n"
-                 "  Full Res 1080p : 0-10  (11 levels)\n"
-                 "  Full Res 1440p : 0-11  (12 levels)\n"
-                 "  512 x 512      : 0-9   (10 levels)\n"
-                 "  256 x 256      : 0-8   ( 9 levels)\n"
-                 "  128 x 128      : 0-7   ( 8 levels)\n"
-                 "   64 x 64       : 0-6   ( 7 levels)\n\n"
-                 "In Mode 1 (Grid): the selected mip cell is highlighted blue.\n"
-                 "Values beyond the preset's valid chain highlight the last real\n"
-                 "cell — because the GPU clamps the sample there too.\n"
-                 "Dark teal cells at the end of the grid are empty placeholder\n"
-                 "slots (the 4-column layout rounds up to the nearest multiple\n"
-                 "of 4); they are intentionally empty, not broken.\n\n"
-                 "In Mode 2 (Region Overlay): the overlay shows the approximate\n"
-                 "screen coverage of one texel at this mip level. The last valid\n"
-                 "mip always reaches 100% coverage (1x1 texel = whole image).\n"
-                 "Any mip beyond that also shows 100% — clamped by the GPU.";
+    ui_tooltip = "Mip to show. Last mip of each chain:\n"
+                 "  Full res 1080p   10\n"
+                 "  Full res 1440p   11\n"
+                 "  512 x 512         9\n"
+                 "  256 x 256         8\n"
+                 "  128 x 128         7\n"
+                 "  64 x 64           6\n"
+                 "The last mip is 1x1, the average of the whole image. Anything\n"
+                 "past it is clamped there by the GPU, as it would be in a real\n"
+                 "adaptation shader. Dark teal cells in the grid are unused slots.";
     ui_min     = 0;
     ui_max     = 11;
 > = 0;
@@ -100,8 +58,7 @@ uniform int MipLevel <
 uniform float2 SampleUV <
     ui_type    = "drag";
     ui_label   = "Sample UV";
-    ui_tooltip = "The UV coordinate being sampled.\n"
-                 "(0.5, 0.5) is the center of the screen.";
+    ui_tooltip = "Point being sampled. 0.5, 0.5 is the centre of the screen.";
     ui_min     = 0.0;
     ui_max     = 1.0;
     ui_step    = 0.005;
@@ -114,16 +71,14 @@ uniform bool ShowSamplePoint <
 
 uniform bool ShowRegionOverlay <
     ui_label   = "Show Region Overlay";
-    ui_tooltip = "Highlight the approximate screen region covered by\n"
-                 "the sampled texel. Only visible in Mode 2.";
+    ui_tooltip = "Mode 2 only: outline the screen area the sampled texel covers.";
 > = true;
 
 uniform int HeatmapColorRange <
     ui_type    = "combo";
     ui_label   = "Heatmap Color Ramp";
-    ui_tooltip = "Color mapping for Mode 3 (Luminance Heatmap).\n"
-                 "Grayscale: black = dark, white = bright.\n"
-                 "Rainbow:   blue = dark, through green, to red = bright.";
+    ui_tooltip = "Mode 3 only. Rainbow runs blue through green to red; Grayscale\n"
+                 "is easier to compare between levels.";
     ui_items   = "Grayscale\0Rainbow\0";
 > = 1;
 
@@ -138,32 +93,35 @@ uniform float GridCellBorder <
 
 uniform bool GridHighlightSelected <
     ui_label   = "Grid: Highlight Selected Mip";
-    ui_tooltip = "In Mode 1, tint the selected Mip Level cell blue.\n"
-                 "If the selected mip is beyond the texture's chain,\n"
-                 "the last valid cell is highlighted instead —\n"
-                 "because that is what the GPU actually reads.";
+    ui_tooltip = "Mode 1 only: tint the selected mip blue. Past the end of the chain\n"
+                 "the last cell is tinted, since that is what the GPU reads.";
 > = true;
 
-// Textures
-// MipLevels = N means the chain has N levels: indices 0..(N-1).
-// We declare enough levels to cover the complete natural chain
-// for each texture size.
+// Each texture declares its complete chain, down to 1x1.
 //
-//   Full res:  MipLevels=12  -> indices 0..11  (covers up to 4K)
-//   512x512:   MipLevels=10  -> indices 0..9
-//   256x256:   MipLevels=9   -> indices 0..8
-//   128x128:   MipLevels=8   -> indices 0..7
-//   64x64:     MipLevels=7   -> indices 0..6
-//
-// At the last valid index, the texture has been collapsed to 1x1.
-// Requesting any index beyond that is GPU-clamped to that 1x1.
+// The full resolution chain is floor(log2(longest axis)) + 1 levels. ReShade
+// refuses a texture that asks for more levels than its size allows, so the
+// count has to follow the screen; a fixed 12 failed below 2048 pixels wide.
+#if (BUFFER_WIDTH >= 8192) || (BUFFER_HEIGHT >= 8192)
+    #define LUMA_FULL_MIPS 14
+#elif (BUFFER_WIDTH >= 4096) || (BUFFER_HEIGHT >= 4096)
+    #define LUMA_FULL_MIPS 13
+#elif (BUFFER_WIDTH >= 2048) || (BUFFER_HEIGHT >= 2048)
+    #define LUMA_FULL_MIPS 12
+#elif (BUFFER_WIDTH >= 1024) || (BUFFER_HEIGHT >= 1024)
+    #define LUMA_FULL_MIPS 11
+#elif (BUFFER_WIDTH >= 512) || (BUFFER_HEIGHT >= 512)
+    #define LUMA_FULL_MIPS 10
+#else
+    #define LUMA_FULL_MIPS 9
+#endif
 
 texture TexLumaFull
 {
     Width      = BUFFER_WIDTH;
     Height     = BUFFER_HEIGHT;
     Format     = R16F;
-    MipLevels  = 12;
+    MipLevels  = LUMA_FULL_MIPS;
 };
 sampler sLumaFull { Texture = TexLumaFull; };
 
@@ -203,37 +161,29 @@ texture TexLuma64
 };
 sampler sLuma64 { Texture = TexLuma64; };
 
-// Helper functions
-
 float CalcLuminance(float3 c)
 {
     return dot(c, float3(0.212656, 0.715158, 0.072186));
 }
 
-// Natural mip count of the full-resolution chain: floor(log2(longest axis)) + 1.
-// Derived from the real buffer size so the tool reports the true chain length
-// (e.g. 11 at 1080p, 12 at 1440p/4K) instead of assuming the declared maximum.
+// Same count as LUMA_FULL_MIPS, worked out at run time for the grid.
 int FullResMipCount()
 {
     return int(floor(log2(float(max(BUFFER_WIDTH, BUFFER_HEIGHT))))) + 1;
 }
 
-// Number of mip levels (count, not max index) for the selected preset.
-// Max valid mip index = GetMipLevelCount() - 1.
 int GetMipLevelCount()
 {
     switch (TexturePreset)
     {
-        case 0:  return FullResMipCount(); // Full res (depends on resolution)
-        case 1:  return 10; // 512x512
-        case 2:  return 9;  // 256x256
-        case 3:  return 8;  // 128x128
-        default: return 7;  // 64x64
+        case 0:  return FullResMipCount();
+        case 1:  return 10;
+        case 2:  return 9;
+        case 3:  return 8;
+        default: return 7;
     }
 }
 
-// Sample the selected luma texture at a given mip.
-// Requesting a mip beyond the chain is GPU-clamped to the last valid level.
 float SampleLuma(float2 uv, float mip)
 {
     switch (TexturePreset)
@@ -246,7 +196,6 @@ float SampleLuma(float2 uv, float mip)
     }
 }
 
-// Base texture dimensions for the selected preset.
 float2 GetTexSize()
 {
     switch (TexturePreset)
@@ -259,7 +208,7 @@ float2 GetTexSize()
     }
 }
 
-// Rainbow false-color: blue=0.0, green=0.5, red=1.0
+// Blue at 0, green at 0.5, red at 1.
 float3 HeatColor(float t)
 {
     t = saturate(t);
@@ -289,12 +238,9 @@ float DrawRectBorder(float2 uv, float2 lo, float2 hi, float thickness)
     return saturate(left + right + top + bottom);
 }
 
-// Luma write passes
-
-// Average four luma samples half a source texel apart - a proper 2:1 box
-// reduction. Point-sampling the full-res backbuffer straight into each smaller
-// texture would skip most source pixels and alias the whole chain, which would
-// misrepresent how a real downsampled luma texture actually looks.
+// A 2:1 box reduction from four taps half a source texel apart. Point
+// sampling the backbuffer into each smaller texture would skip most pixels and
+// alias the chain, which is not how a real downsampled luma texture looks.
 float BoxDownsample(sampler src, float2 uv, float2 srcTexel, float srcMip)
 {
     float v = 0.0;
@@ -311,7 +257,7 @@ void PS_WriteLumaFull(float4 pos : SV_Position, float2 uv : TEXCOORD, out float 
 }
 void PS_WriteLuma512(float4 pos : SV_Position, float2 uv : TEXCOORD, out float luma : SV_Target)
 {
-    // Pull from the full-res mip nearest 1024 so the box covers the full footprint.
+    // Read the full-res mip nearest 1024 so the box covers its whole footprint.
     const float srcMip = max(0.0, ceil(log2(max(BUFFER_WIDTH, BUFFER_HEIGHT) / 1024.0)));
     luma = BoxDownsample(sLumaFull, uv, exp2(srcMip) * ReShade::PixelSize, srcMip);
 }
@@ -328,8 +274,6 @@ void PS_WriteLuma64(float4 pos : SV_Position, float2 uv : TEXCOORD, out float lu
     luma = BoxDownsample(sLuma128, uv, float2(1.0 / 128.0, 1.0 / 128.0), 0.0);
 }
 
-// Debug visualization pass
-
 float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 {
     float4 output = float4(0.0, 0.0, 0.0, 1.0);
@@ -337,16 +281,12 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
     int levelCount    = GetMipLevelCount();
     int maxValidIndex = levelCount - 1;
 
-    // Raw selected mip — passed directly to tex2Dlod so the GPU
-    // clamps it if out of range (mirrors real shader behavior).
+    // Passed to tex2Dlod unclamped, so the GPU clamps it as it would for any
+    // shader. The grid highlight clamps itself to match.
     float selectedMip = float(MipLevel);
-
-    // For grid highlighting, clamp to the last valid cell.
-    // If MipLevel=12 but the chain only goes to 11, we highlight cell 11
-    // because that is physically what the sampler reads.
     int highlightCell = min(MipLevel, maxValidIndex);
 
-    // MODE 0 - Fullscreen Mip View
+    // Fullscreen mip view
     if (DebugMode == 0)
     {
         float l    = SampleLuma(uv, selectedMip);
@@ -359,9 +299,7 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
         }
     }
 
-    // MODE 1 - Mip Chain Grid
-    // Cells 0..(levelCount-1), 4-column layout.
-    // Highlighted cell = min(MipLevel, maxValidIndex).
+    // Mip chain grid, four columns
     else if (DebugMode == 1)
     {
         int    cols   = 4;
@@ -389,22 +327,14 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
         }
         else
         {
-            // Dark teal: visually distinguishable from real mip cells
-            // (which are grayscale) so it is clear these slots are
-            // intentionally empty, not corrupted or missing data.
+            // Unused slot. Teal so it cannot be mistaken for a grey mip.
             output.rgb = float3(0.02, 0.07, 0.08);
         }
 
         output.rgb = lerp(output.rgb, float3(1.0, 1.0, 1.0), border);
     }
 
-    // MODE 2 - Sample Region Overlay
-    // One texel at mip M spans (2^M / texWidth) of the image in X
-    // and (2^M / texHeight) in Y.
-    // When 2^M >= texWidth, frac >= 1.0, which clamps to the full
-    // image — this is correct. At that mip the texture is 1x1 and
-    // that single texel IS the whole image. Beyond that mip the GPU
-    // keeps returning the same 1x1 value, so the region stays at 100%.
+    // Sample region overlay
     else if (DebugMode == 2)
     {
         float3 scene = tex2D(ReShade::BackBuffer, uv).rgb;
@@ -413,11 +343,8 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
 
         if (ShowRegionOverlay)
         {
-            // Snap the box to the actual texel grid at this mip: work out the
-            // texture's size at the selected mip, find which texel SampleUV lands
-            // in, and outline exactly that texel's screen footprint. At the 1x1
-            // mip (or beyond) sizeAtMip collapses to 1 and the box covers the
-            // whole image, which is correct.
+            // Outline the texel SampleUV lands in on this mip's own grid, rather
+            // than a box centred on the cursor. At 1x1 it covers the screen.
             float2 texSize   = GetTexSize();
             float2 sizeAtMip = max(floor(texSize / exp2(selectedMip)), 1.0);
             float2 texelIdx  = clamp(floor(SampleUV * sizeAtMip), 0.0, sizeAtMip - 1.0);
@@ -440,7 +367,7 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
         }
     }
 
-    // MODE 3 - Luminance Heatmap
+    // Luminance heatmap
     else if (DebugMode == 3)
     {
         float l    = SampleLuma(uv, selectedMip);
@@ -456,14 +383,11 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
     return output;
 }
 
-// Technique
-
 technique MipScope
 <
     ui_label   = "MipScope";
-    ui_tooltip = "Mipmap and luminance inspector for ReShade.\n"
-                 "Visualizes how mip levels and texture sizes affect\n"
-                 "what a sampler actually reads from a luma texture.";
+    ui_tooltip = "Shows what a sampler reads from each mip of a luma texture.\n"
+                 "Replaces the picture, so switch it off to play.";
 >
 {
     pass WriteLumaFull

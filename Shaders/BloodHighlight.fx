@@ -12,17 +12,13 @@
 
 namespace dz_BloodHighlight
 {
-    // Rec. 709 luminance weights. Green is weighted highest because the eye
-    // is most sensitive to it; blue the least.
+    // Rec. 709 luminance weights.
     static const float3 LUMINANCE_WEIGHTS = float3(0.212656, 0.715158, 0.072186);
 
     uniform float bloodTone <
         ui_label    = "Blood Tone";
-        ui_tooltip  = "Shifts the target hue across the blood color spectrum.\n"
-                      "Left (0.0): dark crimson, pooled or venous blood.\n"
-                      "Center (0.5): pure red, typical bright blood.\n"
-                      "Right (1.0): orange-red, dried or coagulated blood.\n\n"
-                      "Most games work fine at the default.";
+        ui_tooltip  = "Target hue. 0 is dark crimson, as in pooled blood; 0.5 is pure red;\n"
+                      "1 is the orange-red of dried blood. The default suits most games.";
         ui_category = "Blood Targeting";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -31,11 +27,8 @@ namespace dz_BloodHighlight
 
     uniform float bloodHueRange <
         ui_label    = "Detection Range";
-        ui_tooltip  = "How wide a slice of the hue wheel is treated as blood.\n"
-                      "Small values catch only pixels very close to the target hue (tight, precise).\n"
-                      "Large values catch a broader band of reds and orange-reds (wider, more forgiving).\n\n"
-                      "If neighboring blood pixels are not being caught, raise this.\n"
-                      "If non-blood reds like rust or red armor are triggering, lower it.";
+        ui_tooltip  = "How wide a slice of hue counts as blood. Raise it if parts of a\n"
+                      "splash are missed, lower it if rust or red armour lights up.";
         ui_category = "Blood Targeting";
         ui_type     = "slider";
         ui_min      = 0.01;
@@ -44,9 +37,9 @@ namespace dz_BloodHighlight
 
     uniform float bloodSatThreshold <
         ui_label    = "Blood Saturation Threshold";
-        ui_tooltip  = "Minimum saturation a pixel must have to be treated as blood.\n"
-                      "Raise to exclude dull or faded reds (rust, worn cloth, dark brick).\n"
-                      "Lower if blood looks muted and is not being fully highlighted.";
+        ui_tooltip  = "Minimum saturation for a pixel to count as blood. Raise it to drop\n"
+                      "dull reds such as rust, worn cloth and brick; lower it if blood is\n"
+                      "only partly caught.";
         ui_category = "Blood Targeting";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -55,9 +48,8 @@ namespace dz_BloodHighlight
 
     uniform float bloodShadowCutoff <
         ui_label    = "Shadow Cutoff";
-        ui_tooltip  = "Pixels darker than this brightness are excluded from blood targeting.\n"
-                      "Prevents near-black shadows from being treated as blood.\n"
-                      "The default is very permissive. Only raise it if dark areas are picking up.";
+        ui_tooltip  = "Pixels darker than this are never blood, which keeps near-black\n"
+                      "shadow out. The default excludes almost nothing.";
         ui_category = "Blood Targeting";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -66,10 +58,9 @@ namespace dz_BloodHighlight
 
     uniform float bloodHighlightCutoff <
         ui_label    = "Highlight Cutoff";
-        ui_tooltip  = "Pixels brighter than this brightness are excluded from blood targeting.\n"
-                      "Prevents fire, bright UI elements, and lit red surfaces from triggering.\n"
-                      "Lower if non-blood reds are slipping through. Raise if blood on bright\n"
-                      "surfaces (white fabric, lit floors) is getting cut out.";
+        ui_tooltip  = "Pixels brighter than this are never blood, which keeps out fire, UI\n"
+                      "and lit red surfaces. Raise it if blood on a bright floor or white\n"
+                      "cloth is cut out.";
         ui_category = "Blood Targeting";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -78,10 +69,8 @@ namespace dz_BloodHighlight
 
     uniform float edgeSoftness <
         ui_label    = "Edge Softness";
-        ui_tooltip  = "Width of the soft ramp on the saturation and highlight gates.\n"
-                      "Lower values give crisper, harder isolation edges.\n"
-                      "Higher values feather the transition so blood blends more\n"
-                      "gradually into the desaturated background.";
+        ui_tooltip  = "Width of the ramp on the saturation and highlight gates. Lower gives\n"
+                      "a hard edge to the isolation, higher feathers blood into the scene.";
         ui_category = "Blood Targeting";
         ui_type     = "slider";
         ui_min      = 0.01;
@@ -90,10 +79,8 @@ namespace dz_BloodHighlight
 
     uniform float backgroundColorStrength <
         ui_label    = "Background Color Strength";
-        ui_tooltip  = "How much color is retained in non-blood areas.\n"
-                      "1.0 = fully original colors. 0.0 = completely grayscale.\n"
-                      "The default (0.9) applies subtle desaturation so blood stands out\n"
-                      "without making the whole scene look stylized.";
+        ui_tooltip  = "Colour kept outside the blood. 1 is untouched, 0 is greyscale. The\n"
+                      "default desaturates just enough for blood to stand out.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -102,9 +89,8 @@ namespace dz_BloodHighlight
 
     uniform float backgroundBrightness <
         ui_label    = "Background Brightness";
-        ui_tooltip  = "Dims the non-blood areas of the scene.\n"
-                      "1.0 = untouched. Lower values darken everything except blood,\n"
-                      "making blood read as brighter without touching its color.";
+        ui_tooltip  = "Dims everything except blood, so blood reads brighter without its\n"
+                      "colour changing. 1 is untouched.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.2;
@@ -113,10 +99,9 @@ namespace dz_BloodHighlight
 
     uniform float maskSmoothing <
         ui_label    = "Mask Smoothing";
-        ui_tooltip  = "Blends the isolation mask with a small blur of itself to calm\n"
-                      "the shimmer that noisy or compressed red pixels cause in motion.\n"
-                      "0.0 = off (sharpest, per-pixel). Higher values are steadier but\n"
-                      "soften the blood edges slightly.";
+        ui_tooltip  = "Blends the mask with a 3x3 blur of itself, which calms the shimmer\n"
+                      "of noisy red pixels in motion and softens blood edges a little.\n"
+                      "0 is off.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -125,10 +110,8 @@ namespace dz_BloodHighlight
 
     uniform float bloodColorIntensity <
         ui_label    = "Blood Color Intensity";
-        ui_tooltip  = "Multiplies the saturation of isolated blood pixels.\n"
-                      "1.0 = blood at its natural saturation.\n"
-                      "Above 1.0 makes blood more vivid than the original image.\n"
-                      "Below 1.0 pulls blood toward gray.";
+        ui_tooltip  = "Saturation of the isolated blood. 1 leaves it as it was, above 1\n"
+                      "makes it more vivid, below 1 greys it.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -137,32 +120,23 @@ namespace dz_BloodHighlight
 
     uniform bool showDebugMask <
         ui_label    = "Show Debug Mask";
-        ui_tooltip  = "Displays the isolated blood areas as white pixels against a black background.";
+        ui_tooltip  = "Shows the blood mask, white on black.";
         ui_category = "Debug";
     > = false;
 
-
-    // RGB to HSV conversion.
-    //
-    // HSV separates color into three independent axes:
-    //   .x  Hue        [0, 1]  position on the color wheel (0/1 = red, 0.33 = green, 0.67 = blue)
-    //   .y  Saturation [0, 1]  vividness (0 = gray, 1 = fully saturated)
-    //   .z  Value      [0, 1]  brightness (0 = black, 1 = brightest channel at full)
-    //
-    // Working in HSV lets each isolation gate target one axis cleanly, which
-    // is not possible with raw RGB.
+    // RGB to HSV, all three in [0, 1] with red at hue 0. Each gate below tests
+    // one axis on its own, which RGB would not allow.
     //
     // Source: http://lolengine.net/blog/2013/07/27/rgb-to-hsv-in-glsl
     float3 rgbToHsv(float3 rgb)
     {
         float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-        // Two comparisons sort the six channels into a layout where q.x holds
-        // the largest component, avoiding explicit per-channel branching.
+        // Two comparisons put the largest component in q.x without branching.
         float4 p = rgb.g < rgb.b ? float4(rgb.bg, K.wz) : float4(rgb.gb, K.xy);
         float4 q = rgb.r < p.x   ? float4(p.xyw, rgb.r) : float4(rgb.r, p.yzx);
 
-        float d = q.x - min(q.w, q.y); // chroma (spread between brightest and dimmest channel)
-        float e = 1.0e-10;             // small epsilon to avoid division by zero on black pixels
+        float d = q.x - min(q.w, q.y); // chroma
+        float e = 1.0e-10;             // keeps black from dividing by zero
 
         return float3(
             abs(q.z + (q.w - q.y) / (6.0 * d + e)), // hue
@@ -171,7 +145,6 @@ namespace dz_BloodHighlight
         );
     }
 
-    // Inverse of rgbToHsv. Reconstructs an RGB color from HSV components.
     // Source: http://lolengine.net/blog/2013/07/27/rgb-to-hsv-in-glsl
     float3 hsvToRgb(float3 hsv)
     {
@@ -180,14 +153,11 @@ namespace dz_BloodHighlight
         return hsv.z * lerp(K.xxx, saturate(p - K.xxx), hsv.y);
     }
 
-    // Maps the bloodTone slider [0, 1] to a hue value in [0, 1].
-    // Center (0.5) is pure red (hue 0.0). Moving left shifts toward dark
-    // crimson (hue ~0.95); moving right shifts toward dried orange-red (hue ~0.05).
+    // Blood Tone to a hue within 0.05 either side of red, wrapping below zero
+    // so crimson lands near 0.95.
     float bloodToneToTargetHue(float tone)
     {
-        // Remap [0, 1] to a [-0.05, +0.05] offset around red (hue 0.0).
         float offset = (tone - 0.5) * 0.1;
-        // Negative offsets wrap back to the [0, 1] hue range (e.g. -0.03 -> 0.97).
         return offset < 0.0 ? offset + 1.0 : offset;
     }
 
@@ -196,17 +166,15 @@ namespace dz_BloodHighlight
         return dot(color, LUMINANCE_WEIGHTS);
     }
 
-    // Quintic smooth ("smootherstep") — C2 continuous with zero slope at both
-    // endpoints. Produces a softer blend at isolation edges than smoothstep.
+    // Smootherstep. Flat to the second derivative at both ends, so the edge of
+    // the isolation blends more softly than with smoothstep.
     float quinticSmooth(float x)
     {
         return x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
     }
 
-
-    // Isolation weight in [0, 1] for a single color: how strongly it reads as
-    // blood after the hue, saturation and brightness gates. Factored out so the
-    // pixel shader can evaluate it across a small neighborhood for smoothing.
+    // How strongly a colour reads as blood, 0 to 1. A function of its own so
+    // Mask Smoothing can run it over the neighbours too.
     float BloodMask(float3 color)
     {
         float3 hsv       = rgbToHsv(color);
@@ -217,19 +185,16 @@ namespace dz_BloodHighlight
         float targetHue   = bloodToneToTargetHue(bloodTone);
         float invHueWidth = rcp(bloodHueRange);
 
-        // Three-way hue distance check handles the wraparound at red (hue 0 = hue 1).
-        // A pixel at 0.99 is only 0.02 away from a target of 0.01, but direct
-        // subtraction would give 0.98. The +1 and -1 variants catch both wrap directions.
+        // Hue wraps at red: 0.99 is 0.02 from a target of 0.01, not 0.98, so the
+        // distance is also taken one turn either way.
         float3 hueDists;
         hueDists.x = max(1.0 - abs((hue       - targetHue) * invHueWidth), 0.0);
         hueDists.y = max(1.0 - abs((hue + 1.0 - targetHue) * invHueWidth), 0.0);
         hueDists.z = max(1.0 - abs((hue - 1.0 - targetHue) * invHueWidth), 0.0);
         float hueWeight = dot(hueDists, float3(1.0, 1.0, 1.0));
 
-        // Saturation gate: soft ramp of width edgeSoftness below the threshold.
         float satWeight = smoothstep(bloodSatThreshold - edgeSoftness, bloodSatThreshold, saturation);
 
-        // Brightness gate: fade in above the shadow floor, fade out above the highlight ceiling.
         float valWeight = smoothstep(0.0, bloodShadowCutoff + 0.001, brightness)
                 * (1.0 - smoothstep(bloodHighlightCutoff, bloodHighlightCutoff + edgeSoftness, brightness));
 
@@ -242,9 +207,8 @@ namespace dz_BloodHighlight
 
         float smoothWeight = BloodMask(original);
 
-        // Optionally calm per-pixel shimmer by blending toward a 3x3 average of
-        // the mask. The center color still drives the blood tint; only the mask
-        // weight is smoothed, so edges soften without bleeding color around.
+        // Only the mask is blurred. The colour still comes from this pixel, so
+        // edges soften without red bleeding onto the background.
         [branch]
         if (maskSmoothing > 0.0)
         {
@@ -270,10 +234,9 @@ namespace dz_BloodHighlight
         float3 grayscale  = float3(luma, luma, luma);
         float3 background = lerp(grayscale, original, backgroundColorStrength) * backgroundBrightness;
 
-        // Scale the saturation boost by the isolation weight so that pixels at the
-        // edge of the hue band get a proportional nudge rather than a full jump.
-        // Without this, edge pixels lerp between background and a fully-boosted
-        // blood color, which creates visible banding at the boundary.
+        // The boost follows the mask weight. At full strength everywhere, a
+        // pixel on the edge of the hue band would blend toward fully boosted
+        // blood and leave a visible band at the boundary.
         float3 hsv         = rgbToHsv(original);
         float satBoost     = lerp(1.0, bloodColorIntensity, smoothWeight);
         float3 bloodHsv    = float3(hsv.x, saturate(hsv.y * satBoost), hsv.z);
@@ -284,11 +247,10 @@ namespace dz_BloodHighlight
         return float4(result, 1.0);
     }
 
-
     technique dz_BloodHighlight
     <
         ui_label   = "Blood Highlight";
-        ui_tooltip = "Isolates blood-toned pixels and subtly desaturates the rest of the scene.";
+        ui_tooltip = "Keeps blood in full colour and desaturates the rest of the scene.";
     >
     {
         pass BloodIsolation
