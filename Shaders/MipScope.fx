@@ -17,7 +17,7 @@ uniform int DebugMode <
                  "1: every mip in a grid, the selected one tinted blue.\n"
                  "2: the scene, with a box over the area one texel of the\n"
                  "   selected mip covers.\n"
-                 "3: luminance in false colour.";
+                 "3: luminance in false color.";
     ui_items   = "0 - Fullscreen Mip View\0"
                  "1 - Mip Chain Grid\0"
                  "2 - Sample Region Overlay\0"

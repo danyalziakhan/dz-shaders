@@ -7,7 +7,7 @@ exchanged between voxels that share a slice (spatial term) or share a pixel
 while each pixel's run down the time axis is blue noise in 1D.
 
 Three independent volumes go into the red, green and blue channels, so the shader
-gets a decorrelated pattern per colour channel out of a single fetch.
+gets a decorrelated pattern per color channel out of a single fetch.
 
 Output is a PNG atlas: DEPTH slices of WIDTH x HEIGHT laid out left to right, top
 to bottom. Regenerating with the same SEED reproduces the file byte for byte.

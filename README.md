@@ -36,7 +36,7 @@ The core comes from BarbatosBachiko's PHDR, which took it from singleLDR2HDR: a 
 
 On an HDR swap chain the debanding and dithering settings disappear and those passes are compiled out. The frame is float at that point, so there's nothing to band against, and [HDR Bridge](https://github.com/danyalziakhan/hdrbridge) does both at the end of the chain for the 8-bit cut Windows makes.
 
-The boosted colour is soft-clipped by scaling all three channels together, so a saturated highlight desaturates toward white instead of clipping one channel and shifting hue.
+The boosted color is soft-clipped by scaling all three channels together, so a saturated highlight desaturates toward white instead of clipping one channel and shifting hue.
 
 #### Settings
 
@@ -140,7 +140,7 @@ MipScope keeps five luminance textures (full res, 512x512, 256x256, 128x128, 64x
 
 **Mode 2: Sample Region Overlay.** The scene in grayscale with a rectangle over the screen region the sampled texel covers. The box snaps to the texel grid at the selected mip, outlining the texel your Sample UV lands in rather than centring on the cursor. The last mip of any texture is 1x1, so it covers the whole image, and anything past it is clamped there. That is exactly what a real adaptation shader gets when it over-requests. On non-power-of-two textures the driver's footprint may differ from the drawn box by a fraction of a texel.
 
-**Mode 3: Luminance Heatmap.** Luminance in false colour. Rainbow runs blue through green to red; Grayscale is often easier when comparing levels.
+**Mode 3: Luminance Heatmap.** Luminance in false color. Rainbow runs blue through green to red; Grayscale is often easier when comparing levels.
 
 #### Settings
 
@@ -175,9 +175,9 @@ Declaring `MipLevels = N` in a ReShade texture gives N levels, indexed 0 to N-1.
 
 **File:** `Shaders/BloodHighlight.fx`
 
-Keeps blood in full colour and desaturates the rest of the scene by an adjustable amount, so blood stands out without the frame turning black and white.
+Keeps blood in full color and desaturates the rest of the scene by an adjustable amount, so blood stands out without the frame turning black and white.
 
-Three gates decide what counts as blood: hue near the chosen blood tone, enough saturation to drop dull reds, and brightness between a shadow and a highlight cutoff. Whatever passes all three keeps its colour; the rest blends softly toward grayscale.
+Three gates decide what counts as blood: hue near the chosen blood tone, enough saturation to drop dull reds, and brightness between a shadow and a highlight cutoff. Whatever passes all three keeps its color; the rest blends softly toward grayscale.
 
 Tuned for Mortal Kombat 1, and should work for any game with realistic blood.
 
@@ -193,8 +193,8 @@ Tuned for Mortal Kombat 1, and should work for any game with realistic blood.
 | Shadow Cutoff | 0.01 | Pixels darker than this are never blood. The default excludes almost nothing. |
 | Highlight Cutoff | 0.40 | Pixels brighter than this are never blood, which keeps out fire, UI and lit red surfaces. |
 | Edge Softness | 0.10 | Width of the ramp on the saturation and highlight gates. Lower is a harder edge. |
-| Background Color Strength | 0.9 | Colour kept outside the blood. 1 is untouched, 0 is grayscale. |
-| Background Brightness | 1.0 | Dims everything except blood, so blood reads brighter without its colour changing. |
+| Background Color Strength | 0.9 | Color kept outside the blood. 1 is untouched, 0 is grayscale. |
+| Background Brightness | 1.0 | Dims everything except blood, so blood reads brighter without its color changing. |
 | Mask Smoothing | 0.0 | Blends the mask with a 3x3 blur of itself to calm shimmer from noisy red pixels in motion. |
 | Blood Color Intensity | 1.2 | Saturation of the isolated blood. 1 leaves it as it was. |
 | Show Debug Mask | off | The blood mask, white on black. The quickest way to tune the three gates. |
@@ -206,7 +206,7 @@ Tuned for Mortal Kombat 1, and should work for any game with realistic blood.
 3. **Detection Range.** The main coverage control. Raise it if only a thin slice of the blood lights up, lower it if other reds start to.
 4. **Shadow Cutoff.** Lower it if blood pooled in shadow is missed.
 5. **Highlight Cutoff.** Lower it if fire or UI bleeds in, raise it if blood on bright surfaces is cut out.
-6. **Blood Saturation Threshold.** Raise it if rust, cloth or armour is caught, lower it if blood is only partly coloured.
+6. **Blood Saturation Threshold.** Raise it if rust, cloth or armour is caught, lower it if blood is only partly colored.
 7. **Background Color Strength.** To taste. Lower is more contrast between blood and everything else, and a more stylised look.
 8. **Blood Color Intensity.** The default makes blood a little more vivid than the source. Bring it toward 1.0 or below to blend blood back toward the background.
 

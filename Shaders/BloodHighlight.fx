@@ -79,7 +79,7 @@ namespace dz_BloodHighlight
 
     uniform float backgroundColorStrength <
         ui_label    = "Background Color Strength";
-        ui_tooltip  = "Colour kept outside the blood. 1 is untouched, 0 is greyscale. The\n"
+        ui_tooltip  = "Color kept outside the blood. 1 is untouched, 0 is grayscale. The\n"
                       "default desaturates just enough for blood to stand out.";
         ui_category = "Scene";
         ui_type     = "slider";
@@ -90,7 +90,7 @@ namespace dz_BloodHighlight
     uniform float backgroundBrightness <
         ui_label    = "Background Brightness";
         ui_tooltip  = "Dims everything except blood, so blood reads brighter without its\n"
-                      "colour changing. 1 is untouched.";
+                      "color changing. 1 is untouched.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.2;
@@ -173,7 +173,7 @@ namespace dz_BloodHighlight
         return x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
     }
 
-    // How strongly a colour reads as blood, 0 to 1. A function of its own so
+    // How strongly a color reads as blood, 0 to 1. A function of its own so
     // Mask Smoothing can run it over the neighbours too.
     float BloodMask(float3 color)
     {
@@ -207,7 +207,7 @@ namespace dz_BloodHighlight
 
         float smoothWeight = BloodMask(original);
 
-        // Only the mask is blurred. The colour still comes from this pixel, so
+        // Only the mask is blurred. The color still comes from this pixel, so
         // edges soften without red bleeding onto the background.
         [branch]
         if (maskSmoothing > 0.0)
@@ -250,7 +250,7 @@ namespace dz_BloodHighlight
     technique dz_BloodHighlight
     <
         ui_label   = "Blood Highlight";
-        ui_tooltip = "Keeps blood in full colour and desaturates the rest of the scene.";
+        ui_tooltip = "Keeps blood in full color and desaturates the rest of the scene.";
     >
     {
         pass BloodIsolation
