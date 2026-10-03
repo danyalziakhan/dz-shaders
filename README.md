@@ -8,7 +8,7 @@ All shaders require ReShade 6.x unless stated otherwise.
 
 Copy the contents of `Shaders/` into your ReShade `Shaders` folder and the contents of `Textures/` into your ReShade `Textures` folder, then enable the effects from the ReShade overlay.
 
-MipScope and BloodHighlight include `ReShade.fxh`, which isn't in this repo. The ReShade installer always installs it, with its Standard effects package, into `reshade-shaders\Shaders`. If you point ReShade's effect search path somewhere else instead, keep that folder on the path too or copy `ReShade.fxh` alongside these shaders. PHDR Plus and PHDR Source need no headers.
+MipScope and BloodHighlight include `ReShade.fxh`, which isn't in this repo. The ReShade installer always installs it, with its Standard effects package, into `reshade-shaders\Shaders`. If you point ReShade's effect search path somewhere else instead, keep that folder on the path too or copy `ReShade.fxh` alongside these shaders. PHDR Plus needs no headers.
 
 MipScope replaces the whole frame with debug views, so switch it on only while inspecting. The others are meant to run during play.
 
@@ -34,7 +34,7 @@ The core comes from BarbatosBachiko's PHDR, which took it from singleLDR2HDR: a 
 
 **Debanding and dithering.** Dithering stops new banding forming; debanding repairs banding that's already there. The debander only acts where three tests agree: the neighbourhood average sits close to the pixel, the samples agree with each other, and the value doesn't change from one pixel to the next. The last one is what separates a band from quiet texture, since inside a band neighbouring pixels are identical. It runs twice with separate settings, Shader Effect for pixels the tone fusion reworked and Source Image for everything it left alone, crossfaded by how far each pixel moved. The dither is triangular and per channel, from a spatiotemporal blue noise mask (`tools/make_stbn.py`, shipped as `Textures/dz_stbn_512x256.png`) or from interleaved gradient noise if the texture is missing.
 
-On an HDR swap chain the debanding and dithering settings disappear and those passes are compiled out. The frame is float at that point, so there's nothing to band against, and PHDR Source does both at the end of the chain for the 8-bit cut Windows makes. See below.
+On an HDR swap chain the debanding and dithering settings disappear and those passes are compiled out. The frame is float at that point, so there's nothing to band against, and [HDR Bridge](https://github.com/danyalziakhan/hdrbridge) does both at the end of the chain for the 8-bit cut Windows makes.
 
 The boosted colour is soft-clipped by scaling all three channels together, so a saturated highlight desaturates toward white instead of clipping one channel and shifting hue.
 
@@ -116,47 +116,7 @@ A preset authored on a 1200 line screen before this is ported by dividing by 120
 
 #### HUD
 
-With the [HUD Mask](https://github.com/danyalziakhan/hudmask) add-on installed, PHDR Plus leaves the game's HUD as the game drew it and keeps it out of the eye adaptation, so a bright compass or quest marker no longer moves the exposure. Without the add-on nothing changes. PHDR Source still tone maps the HUD in HDR, since it has to bring the HUD's brightness down to SDR like the rest of the frame.
-
----
-
-### PHDR Source
-
-**File:** `Shaders/PHDRSource.fx`
-
-Lets PHDR Plus work on a game's HDR output when the monitor is SDR. It's meant for use with the [HDR Bridge](https://github.com/danyalziakhan/hdrbridge) ReShade add-on, which lets a game switch HDR on when the monitor can't and has Windows show the result as SDR. PHDR Source tone maps that HDR frame into the SDR image PHDR Plus expects, then hands the result back in the form the swap chain needs.
-
-It is two techniques, and the order in the ReShade list matters:
-
-1. **PHDR Source: Tone Map**, first
-2. **PHDR Plus**, as for any SDR game
-3. **PHDR Source: Output**, last
-
-Tone Map decodes scRGB or HDR10, repairs NaN and infinite pixels some renderers leave behind, debands the HDR frame, meters it, and tone maps to SDR with the ITU-R BT.2390 curve. Colour outside BT.709 is compressed toward the gamut edge rather than clipped. Output debands the SDR frame, dithers for the 8-bit cut Windows makes on the way to the monitor, and converts back. On an SDR swap chain both techniques pass the frame through untouched, so they can stay enabled.
-
-Requires ReShade 5.1 or later for `BUFFER_COLOR_SPACE`, and the same blue noise texture as PHDR Plus.
-
-#### Settings
-
-| Setting | Default | What it does |
-|---|---|---|
-| Display White | 450 | Nits that SDR white stands for. Higher leaves more room for highlights and darkens the picture. |
-| Exposure | 0.6 | Stops. The white point moves with it, so highlights keep their detail. With the defaults below, Odyssey lands within 0.1 stops of the game's SDR frame by day and by night. |
-| Auto Exposure Brighten / Darken | 0.2 / 0.2 | How far a scene below or above the Key is pulled toward it. At 0.2 the darkest Odyssey nights sit at the game's SDR brightness; 0.35 already lifts them 0.4 stops above it. 0 keeps the game's own exposure. |
-| Auto Exposure Key | 8 | Average brightness in nits that Auto Exposure leaves alone. |
-| Highlight Adaptation | 0.35 | Darkens the picture when a bright light fills the view, the sun or a lamp at night. A log average barely moves for a small bright area, so this meters a centre-weighted linear level alongside it. |
-| Adapt to Brighter / Darker | 0.4 / 1.5 | Seconds the exposure takes to settle in each direction. |
-| Highlight Colour | 1.0 | 0 lets bright colours bleach toward white as an SDR grade does, 1 keeps their hue and saturation. |
-| Saturation | 1.0 | Colour gain after tone mapping. |
-| Shadow Contrast | 0 | Steepens the stops just below the scene average, as an SDR grade does. At 0 the Odyssey HDR shadows already match the game's SDR frame in texture and level, and each step up pushes more of the frame toward black: 1.5 puts 11% more of a night frame below code 12. Above 0.5 it reads as crushed. |
-| Shadow Span | 5.0 | How far below the average, in stops, Shadow Contrast reaches before handing the deepest shadows back unchanged. It shrinks on its own in a dim scene so the dip can't run into black. |
-| Shadow Lift | 0 | Raises the deepest shadows, which BT.2390 passes through at their true brightness. Black stays black. It is a gain that falls with brightness, so it flattens texture in the dark tones; use Exposure to brighten a scene instead. |
-| Debanding: HDR Frame | on | Many games' HDR output is already banded, each channel stepping by 1 to 2%, which tone mapping turns into coloured contours. This runs on the log of each channel before tone mapping, with brightness and colour handled separately. Its Detail Guard judges texture over a 5x5 area rather than one pixel's neighbours, so faint stone at night is left alone while a banded sky is not, and passes after the first read a half-resolution copy, which bands that wide never notice. Threshold 5, Radius 32, Passes 3, Correction Limit 6, in steps of 4%. |
-| Colour Deband | 1.0 | How much harder colour is smoothed than brightness. Raise it if skies show coloured contours. |
-| Debanding: SDR Frame | on | The PHDR Plus debander, run here after PHDR Plus, with the same Shader Effect and Source Image halves and the same defaults. |
-| Enable Dithering | on | For the 8-bit cut on the way to the monitor. |
-| Dither Strength | 2.0 | In 8-bit steps. |
-| Debug Meter / Debug Deband | off | Bars for scene average, bright level, peak and exposure gain; or where the SDR debander moved pixels. |
+With the [HUD Mask](https://github.com/danyalziakhan/hudmask) add-on installed, PHDR Plus leaves the game's HUD as the game drew it and keeps it out of the eye adaptation, so a bright compass or quest marker no longer moves the exposure. Without the add-on nothing changes. In an HDR game, HDR Bridge still tone maps the HUD, since it has to bring the HUD's brightness down to SDR like the rest of the frame.
 
 ---
 
