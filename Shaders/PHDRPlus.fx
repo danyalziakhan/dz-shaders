@@ -1087,9 +1087,10 @@ float3 SampleBlueNoise(int2 pixel, int slice)
 // How much of this pixel is HUD, 0 without HUD Guard or in a frame with no HUD.
 float HudMask(float2 uv)
 {
-    if (tex2Dsize(sTexHudMask).x < 2)
-        return 0.0;
-    return saturate(tex2Dlod(sTexHudMask, float4(uv, 0.0, 0.0)).a);
+    float cover = 0.0;
+    if (tex2Dsize(sTexHudMask).x >= 2)
+        cover = saturate(tex2Dlod(sTexHudMask, float4(uv, 0.0, 0.0)).a);
+    return cover;
 }
 
 void PS_Luma(VS_OUTPUT input, out float luma : SV_Target)
