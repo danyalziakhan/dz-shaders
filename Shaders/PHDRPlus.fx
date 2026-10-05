@@ -1049,7 +1049,11 @@ float MonotonicCurveLimit(float strengthMidtones, float strengthShadows, float s
     float A     = 4.0 * strengthMidtones - strengthHighlights - strengthShadows;
     float slope = subtracted ? -((strengthHighlights - strengthShadows) + abs(A))
                              :  ((strengthHighlights - strengthShadows) - abs(A));
-    return (slope < 0.0) ? (-1.0 / slope) : 1e6;
+    // Both sides of the select are evaluated, and three neutral sliders give a
+    // slope of exactly zero. The min keeps the discarded side finite, which in
+    // performance mode is what stops fxc folding it into a division by zero.
+    // Any slope it changes already gives a limit of 1e6 or more, far beyond any curve.
+    return (slope < 0.0) ? (-1.0 / min(slope, -1e-6)) : 1e6;
 }
 
 // Roll a color whose brightest channel exceeds a soft knee back down to 1.0 by
