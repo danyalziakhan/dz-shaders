@@ -1655,14 +1655,14 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // Negative detail means darker than the local base. The 3.0 makes the mask
     // visible, the 0.40 stops it reaching black, and the Base gate keeps it off
     // noise in flat shadows. This is the etched-outline artifact, by design.
-    float bright_neighbour = smoothstep(0.15, 0.5, Base);
+    float bright_neighbor = smoothstep(0.15, 0.5, Base);
 
     // The threshold is subtracted rather than gated, so the halo grows from zero
     // past it with no step. Soft clouds and depth of field blur hold small
     // noisy dips below their base, which the 3.0 turned into dark grain; an
     // edge dips by far more and keeps its halo.
     float hf_detail = L - Base;
-    float contrast_shadow = min(saturate(max(-hf_detail - Contrast_Shadow_Threshold, 0.0) * 3.0), 0.40) * Contrast_Shadow_Strength * bright_neighbour * effective_strength;
+    float contrast_shadow = min(saturate(max(-hf_detail - Contrast_Shadow_Threshold, 0.0) * 3.0), 0.40) * Contrast_Shadow_Strength * bright_neighbor * effective_strength;
 
     if (Debug_Mask)
     {
@@ -1699,7 +1699,7 @@ float3 SoftLimit(float3 v, float limit)
 // pixel to pixel. The third carries it, since the first two only measure how
 // far apart values are and quiet texture is not far apart. The tests read the
 // incoming frame; only the repair lands in output space.
-float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
+float3 Deband(float2 uv, float3 out_center, float3 src_center, float jitter,
               float threshold, float radius, int iterations, int taps, float detail)
 {
     float2 ps = bb::PixelSize;
@@ -1711,19 +1711,19 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
 
     if (detail > 0.0)
     {
-        float3 hf = abs(tex2D(sTexColor, uv + float2( ps.x, 0.0)).rgb - src_centre)
-                  + abs(tex2D(sTexColor, uv + float2(-ps.x, 0.0)).rgb - src_centre)
-                  + abs(tex2D(sTexColor, uv + float2(0.0,  ps.y)).rgb - src_centre)
-                  + abs(tex2D(sTexColor, uv + float2(0.0, -ps.y)).rgb - src_centre);
+        float3 hf = abs(tex2D(sTexColor, uv + float2( ps.x, 0.0)).rgb - src_center)
+                  + abs(tex2D(sTexColor, uv + float2(-ps.x, 0.0)).rgb - src_center)
+                  + abs(tex2D(sTexColor, uv + float2(0.0,  ps.y)).rgb - src_center)
+                  + abs(tex2D(sTexColor, uv + float2(0.0, -ps.y)).rgb - src_center);
 
         float measured = max(max(hf.r, hf.g), hf.b) * 0.25 * DitherSteps;
         guard = 1.0 - smoothstep(detail * 0.5, detail, measured);
     }
 
     if (guard <= 0.0)
-        return out_centre;
+        return out_center;
 
-    float3 res = out_centre;
+    float3 res = out_center;
 
     [loop]
     for (int i = 1; i <= iterations; i++)
@@ -1757,8 +1757,8 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
 
             // Accumulate offsets from the center, not the samples, so the sum stays small
             // and does not lose the sub-step precision the repair depends on.
-            float3 sd_ = tex2Dlod(sTexColor,    at).rgb - src_centre;
-            float3 od_ = tex2Dlod(sTexCombined, at).rgb - out_centre;
+            float3 sd_ = tex2Dlod(sTexColor,    at).rgb - src_center;
+            float3 od_ = tex2Dlod(sTexCombined, at).rgb - out_center;
 
             src_sum   += sd_;
             src_sumsq += sd_ * sd_;
@@ -1769,7 +1769,7 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
 
         float3 src_mean = src_sum * inv;
         float3 src_sd   = sqrt(max(src_sumsq * inv - src_mean * src_mean, 0.0));
-        float3 out_avg  = out_centre + out_sum * inv;
+        float3 out_avg  = out_center + out_sum * inv;
 
         // Close to the neighborhood average: a flat step rather than an edge.
         // src_mean is already the offset from the center, so it is that distance.
@@ -1785,7 +1785,7 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
 
     // Cap the repair: a band is a step or two tall, so a larger correction is
     // averaging away contrast rather than repairing a step.
-    return out_centre + SoftLimit(res - out_centre, DebandMaxCorrection / DitherSteps);
+    return out_center + SoftLimit(res - out_center, DebandMaxCorrection / DitherSteps);
 }
 
 // Presentation: repair banding, then dither, then hand the frame over. Dither has
