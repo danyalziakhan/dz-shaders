@@ -32,7 +32,7 @@ The core comes from BarbatosBachiko's PHDR, which took it from singleLDR2HDR: a 
 
 **Simultaneous contrast.** A dark halo on the shadow side of bright edges, which makes highlights read as brighter than they are. It is also the etched-outline look when overdone, so it has both a strength and a threshold.
 
-**Debanding and dithering.** Dithering stops new banding forming; debanding repairs banding that's already there. The debander only acts where three tests agree: the neighbourhood average sits close to the pixel, the samples agree with each other, and the value doesn't change from one pixel to the next. The last one is what separates a band from quiet texture, since inside a band neighbouring pixels are identical. It runs twice with separate settings, Shader Effect for pixels the tone fusion reworked and Source Image for everything it left alone, crossfaded by how far each pixel moved. The dither is triangular and per channel, from a spatiotemporal blue noise mask (`tools/make_stbn.py`, shipped as `Textures/dz_stbn_512x256.png`) or from interleaved gradient noise if the texture is missing.
+**Debanding and dithering.** Dithering stops new banding forming; debanding repairs banding that's already there. The debander only acts where three tests agree: the neighborhood average sits close to the pixel, the samples agree with each other, and the value doesn't change from one pixel to the next. The last one is what separates a band from quiet texture, since inside a band neighboring pixels are identical. It runs twice with separate settings, Shader Effect for pixels the tone fusion reworked and Source Image for everything it left alone, crossfaded by how far each pixel moved. The dither is triangular and per channel, from a spatiotemporal blue noise mask (`tools/make_stbn.py`, shipped as `Textures/dz_stbn_512x256.png`) or from interleaved gradient noise if the texture is missing.
 
 On an HDR swap chain the debanding and dithering settings disappear and those passes are compiled out. The frame is float at that point, so there's nothing to band against, and [HDR Bridge](https://github.com/danyalziakhan/hdrbridge) does both at the end of the chain for the 8-bit cut Windows makes.
 
@@ -55,7 +55,7 @@ The boosted color is soft-clipped by scaling all three channels together, so a s
 | Contrast Shadow Strength | 1.0 | Depth of the dark halo on the shadow side of bright edges, as a fraction of INTENSITY. Lower it if objects look drawn on. |
 | Contrast Shadow Threshold | 0 | How much darker than its surroundings a pixel must be before the halo acts. Raise it if soft clouds or out of focus backgrounds turn grainy; real edges keep their halo. 0 is off. |
 | Enable Dithering | on | Triangular dither, per channel. SDR swap chain only. |
-| Dither Strength | 1.0 | Amplitude in output steps. 1.0 is what the maths asks for; raise it for visible grain. |
+| Dither Strength | 1.0 | Amplitude in output steps. 1.0 is what the math asks for; raise it for visible grain. |
 | Dither Pattern | Blue Noise Mask | The mask hides better at the same amplitude and settles rather than crawling. Gradient Noise needs no texture. |
 | Enable Debanding | on | Master switch. SDR swap chain only. |
 | Deband Correction Limit | 2.0 | Furthest a pixel may move, in steps. A band is a step or two tall, so a bigger correction is averaging away contrast. |
@@ -138,7 +138,7 @@ MipScope keeps five luminance textures (full res, 512x512, 256x256, 128x128, 64x
 
 **Mode 1: Mip Chain Grid.** Every mip at once in a 4-column grid, the selected one tinted blue. Ask for a level the texture doesn't have and the last cell is tinted instead, because that's what the GPU really reads. Dark teal cells are unused slots in the grid.
 
-**Mode 2: Sample Region Overlay.** The scene in grayscale with a rectangle over the screen region the sampled texel covers. The box snaps to the texel grid at the selected mip, outlining the texel your Sample UV lands in rather than centring on the cursor. The last mip of any texture is 1x1, so it covers the whole image, and anything past it is clamped there. That is exactly what a real adaptation shader gets when it over-requests. On non-power-of-two textures the driver's footprint may differ from the drawn box by a fraction of a texel.
+**Mode 2: Sample Region Overlay.** The scene in grayscale with a rectangle over the screen region the sampled texel covers. The box snaps to the texel grid at the selected mip, outlining the texel your Sample UV lands in rather than centering on the cursor. The last mip of any texture is 1x1, so it covers the whole image, and anything past it is clamped there. That is exactly what a real adaptation shader gets when it over-requests. On non-power-of-two textures the driver's footprint may differ from the drawn box by a fraction of a texel.
 
 **Mode 3: Luminance Heatmap.** Luminance in false color. Rainbow runs blue through green to red; Grayscale is often easier when comparing levels.
 
@@ -149,7 +149,7 @@ MipScope keeps five luminance textures (full res, 512x512, 256x256, 128x128, 64x
 | Debug Mode | Which view to show (0 to 3) |
 | Texture Size | Full resolution, 512x512, 256x256, 128x128 or 64x64 |
 | Mip Level | The mip to show. Values past the end of the chain are clamped by the GPU to the last level |
-| Sample UV | The point to mark and to use for the region overlay (0.5, 0.5 is the centre) |
+| Sample UV | The point to mark and to use for the region overlay (0.5, 0.5 is the center) |
 | Show Sample Point | Draw a crosshair at Sample UV |
 | Show Region Overlay | Draw the texel footprint box (Mode 2 only) |
 | Heatmap Color Ramp | Grayscale or Rainbow, for Mode 3 |

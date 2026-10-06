@@ -111,7 +111,7 @@ namespace dz_BloodHighlight
     uniform float bloodColorIntensity <
         ui_label    = "Blood Color Intensity";
         ui_tooltip  = "Saturation of the isolated blood. 1 leaves it as it was, above 1\n"
-                      "makes it more vivid, below 1 greys it.";
+                      "makes it more vivid, below 1 grays it.";
         ui_category = "Scene";
         ui_type     = "slider";
         ui_min      = 0.0;
@@ -174,7 +174,7 @@ namespace dz_BloodHighlight
     }
 
     // How strongly a color reads as blood, 0 to 1. A function of its own so
-    // Mask Smoothing can run it over the neighbours too.
+    // Mask Smoothing can run it over the neighbors too.
     float BloodMask(float3 color)
     {
         float3 hsv       = rgbToHsv(color);

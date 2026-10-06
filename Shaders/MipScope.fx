@@ -58,7 +58,7 @@ uniform int MipLevel <
 uniform float2 SampleUV <
     ui_type    = "drag";
     ui_label   = "Sample UV";
-    ui_tooltip = "Point being sampled. 0.5, 0.5 is the centre of the screen.";
+    ui_tooltip = "Point being sampled. 0.5, 0.5 is the center of the screen.";
     ui_min     = 0.0;
     ui_max     = 1.0;
     ui_step    = 0.005;
@@ -327,7 +327,7 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
         }
         else
         {
-            // Unused slot. Teal so it cannot be mistaken for a grey mip.
+            // Unused slot. Teal so it cannot be mistaken for a gray mip.
             output.rgb = float3(0.02, 0.07, 0.08);
         }
 
@@ -344,7 +344,7 @@ float4 PS_Debug(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target
         if (ShowRegionOverlay)
         {
             // Outline the texel SampleUV lands in on this mip's own grid, rather
-            // than a box centred on the cursor. At 1x1 it covers the screen.
+            // than a box centered on the cursor. At 1x1 it covers the screen.
             float2 texSize   = GetTexSize();
             float2 sizeAtMip = max(floor(texSize / exp2(selectedMip)), 1.0);
             float2 texelIdx  = clamp(floor(SampleUV * sizeAtMip), 0.0, sizeAtMip - 1.0);

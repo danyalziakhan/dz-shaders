@@ -203,7 +203,7 @@ uniform bool EnableDithering <
     hidden = PHDRP_HDR_CHAIN;
     ui_label = "Enable Dithering";
     ui_category = "Dithering";
-    ui_tooltip = "Adds a sub-level noise pattern so gradients quantise smoothly.";
+    ui_tooltip = "Adds a sub-level noise pattern so gradients quantize smoothly.";
 > = true;
 
 uniform float DitherStrength <
@@ -213,7 +213,7 @@ uniform float DitherStrength <
     ui_step = 0.01;
     ui_label = "Dither Strength";
     ui_category = "Dithering";
-    ui_tooltip = "Dither amplitude in quantisation steps. 1.0 is what the maths asks\n"
+    ui_tooltip = "Dither amplitude in quantization steps. 1.0 is what the math asks\n"
                  "for; raise it for visible grain.";
 > = 1.0;
 
@@ -233,7 +233,7 @@ uniform bool EnableDeband <
     ui_label = "Enable Debanding";
     ui_category = "Debanding";
     ui_category_closed = true;
-    ui_tooltip = "Rebuilds gradients already quantised into visible steps. Dithering\n"
+    ui_tooltip = "Rebuilds gradients already quantized into visible steps. Dithering\n"
                  "stops banding forming; this repairs banding that is already there.";
 > = true;
 
@@ -244,7 +244,7 @@ uniform float DebandMaxCorrection <
     ui_step = 0.1;
     ui_label = "Deband Correction Limit";
     ui_category = "Debanding";
-    ui_tooltip = "Furthest the debander may move a pixel, in quantisation steps. A band\n"
+    ui_tooltip = "Furthest the debander may move a pixel, in quantization steps. A band\n"
                  "is a step or two tall, so a much larger correction is averaging away\n"
                  "contrast rather than repairing a step.";
 > = 2.0;
@@ -258,7 +258,7 @@ uniform float DebandSplit <
     ui_category = "Debanding";
     ui_tooltip = "How far this shader must have moved a pixel before it is handed to the\n"
                  "Shader Effect settings instead of the Source Image ones, in\n"
-                 "quantisation steps. Both run every frame; this is the line between them.";
+                 "quantization steps. Both run every frame; this is the line between them.";
 > = 1.0;
 
 uniform int DebandTaps <
@@ -272,7 +272,7 @@ uniform int DebandTaps <
     ui_category = "Debanding";
     ui_tooltip = "Samples per pass, spread over a disc. Raise this before raising either\n"
                  "threshold, since a loose threshold is usually a badly measured\n"
-                 "neighbourhood.";
+                 "neighborhood.";
 > = 1;
 
 // ---- Debanding: what this shader reworked ----
@@ -291,7 +291,7 @@ uniform float DebandEffectThreshold <
     ui_step = 0.1;
     ui_label = "Threshold";
     ui_category = "Debanding: Shader Effect";
-    ui_tooltip = "How flat an area must be to count as a band, in quantisation steps.";
+    ui_tooltip = "How flat an area must be to count as a band, in quantization steps.";
 > = 1.75;
 
 uniform float DebandEffectRadius <
@@ -343,7 +343,7 @@ uniform float DebandSourceThreshold <
     ui_step = 0.1;
     ui_label = "Threshold";
     ui_category = "Debanding: Source Image";
-    ui_tooltip = "How flat an area must be to count as a band, in quantisation steps.";
+    ui_tooltip = "How flat an area must be to count as a band, in quantization steps.";
 > = 1.65;
 
 uniform float DebandSourceRadius <
@@ -686,7 +686,7 @@ uniform bool Debug_Deband <
 uniform float FrameTime < source = "frametime"; >;
 uniform int FrameCount < source = "framecount"; >;
 
-// Quantisation step of the output, from the real backbuffer bit depth, so the
+// Quantization step of the output, from the real backbuffer bit depth, so the
 // dither and the debander both work in units of one visible level.
 #ifndef BUFFER_COLOR_BIT_DEPTH
     #define BUFFER_COLOR_BIT_DEPTH 8
@@ -728,7 +728,7 @@ namespace DZPHDR
         Texture = TexColor;
     };
 
-    // Held back one pass so the debander can see its neighbours and the dither
+    // Held back one pass so the debander can see its neighbors and the dither
     // runs last. Alpha carries how far this shader moved each pixel.
     // Half float: the debander lands values between the 8-bit levels.
     texture TexCombined
@@ -1078,7 +1078,7 @@ float3 GamutSoftClip(float3 c)
 //---------------------|
 
 // One voxel of the blue noise volume for this pixel, on the given slice. The
-// stored bytes are rank order, so shifting to the centre of each bin turns the
+// stored bytes are rank order, so shifting to the center of each bin turns the
 // 256 levels into an unbiased [0,1) rather than a ramp that reaches both ends.
 float3 SampleBlueNoise(int2 pixel, int slice)
 {
@@ -1202,7 +1202,7 @@ float SampleAvgLuma()
 float2 MomentsToAB(float2 m, float eps)
 {
     // Clamped because the moments live in half-float. In flat sky E[I^2] is
-    // quantised far coarser than the true variance, so the difference can come
+    // quantized far coarser than the true variance, so the difference can come
     // out slightly negative, and with the micro epsilon that close to zero the
     // division below blows up on single pixels. Those land in the micro base,
     // cancel only when the micro and medium gains match, and otherwise show as
@@ -1419,7 +1419,7 @@ void PS_CalcAdapt(VS_OUTPUT input, out float2 adapt : SV_Target)
 }
 
 // Interleaved Gradient Noise, Jimenez's constants. Well spread over a small
-// neighbourhood rather than merely random, so it hides in a gradient instead
+// neighborhood rather than merely random, so it hides in a gradient instead
 // of clumping. The stored blue-noise mask is better but needs a texture.
 float InterleavedGradientNoise(float2 pos)
 {
@@ -1501,7 +1501,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
 
     // Hold the detail term to a stated number of stops, darkening side only.
-    // The artefact is a dark rim on the shadow side of a bright object, so
+    // The artifact is a dark rim on the shadow side of a bright object, so
     // limiting both directions would spend the highlight detail that makes a
     // lit surface read as lit to buy back something only one side is doing.
     [branch]
@@ -1654,7 +1654,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     // Simultaneous contrast masking: deepen the shadow side of bright edges.
     // Negative detail means darker than the local base. The 3.0 makes the mask
     // visible, the 0.40 stops it reaching black, and the Base gate keeps it off
-    // noise in flat shadows. This is the etched-outline artefact, by design.
+    // noise in flat shadows. This is the etched-outline artifact, by design.
     float bright_neighbour = smoothstep(0.15, 0.5, Base);
 
     // The threshold is subtracted rather than gated, so the halo grows from zero
@@ -1672,7 +1672,7 @@ float4 PS_FinalCombine(VS_OUTPUT input) : SV_Target
     }
     blended = saturate(blended * (1.0 - contrast_shadow));
 
-    // Alpha records how far this shader moved the pixel, measured in quantisation
+    // Alpha records how far this shader moved the pixel, measured in quantization
     // steps and taken on the channel that moved most. The presentation pass uses it
     // to decide where debanding is this shader's business: a step it never opened
     // is a step it has no reason to go looking for.
@@ -1692,9 +1692,9 @@ float3 SoftLimit(float3 v, float limit)
     return sign(v) * min(a, knee + over * knee / (knee + over));
 }
 
-// Rebuild a gradient quantised into visible steps.
+// Rebuild a gradient quantized into visible steps.
 //
-// Three tests have to agree: the neighbourhood average sits close to the
+// Three tests have to agree: the neighborhood average sits close to the
 // pixel, the samples agree with each other, and the value does not change
 // pixel to pixel. The third carries it, since the first two only measure how
 // far apart values are and quiet texture is not far apart. The tests read the
@@ -1705,7 +1705,7 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
     float2 ps = bb::PixelSize;
     float step_size = 1.0 / DitherSteps;
 
-    // Frequency test: mean absolute difference to the four nearest neighbours of
+    // Frequency test: mean absolute difference to the four nearest neighbors of
     // the source pixel, in steps. Flat inside a band, never flat inside texture.
     float guard = 1.0;
 
@@ -1755,7 +1755,7 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
 
             float4 at = float4(uv + float2(cos(a), sin(a)) * rr * ps, 0.0, 0.0);
 
-            // Accumulate offsets from the centre, not the samples, so the sum stays small
+            // Accumulate offsets from the center, not the samples, so the sum stays small
             // and does not lose the sub-step precision the repair depends on.
             float3 sd_ = tex2Dlod(sTexColor,    at).rgb - src_centre;
             float3 od_ = tex2Dlod(sTexCombined, at).rgb - out_centre;
@@ -1771,11 +1771,11 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
         float3 src_sd   = sqrt(max(src_sumsq * inv - src_mean * src_mean, 0.0));
         float3 out_avg  = out_centre + out_sum * inv;
 
-        // Close to the neighbourhood average: a flat step rather than an edge.
-        // src_mean is already the offset from the centre, so it is that distance.
+        // Close to the neighborhood average: a flat step rather than an edge.
+        // src_mean is already the offset from the center, so it is that distance.
         float3 flat_weight = 1.0 - smoothstep(bound * 0.5, bound, abs(src_mean));
 
-        // Neighbourhood agrees with itself: a gradient rather than texture. The
+        // Neighborhood agrees with itself: a gradient rather than texture. The
         // slack is wider than the flatness test because a genuine gradient does
         // vary across the disc, it just varies smoothly.
         float3 calm_weight = 1.0 - smoothstep(bound, bound * 2.0, src_sd);
@@ -1789,12 +1789,12 @@ float3 Deband(float2 uv, float3 out_centre, float3 src_centre, float jitter,
 }
 
 // Presentation: repair banding, then dither, then hand the frame over. Dither has
-// to be last, because it exists to survive the quantisation that happens on the
+// to be last, because it exists to survive the quantization that happens on the
 // way out, and anything that averages pixels afterwards would undo it.
 float3 PS_Present(VS_OUTPUT input) : SV_Target
 {
-    float4 centre = tex2D(sTexCombined, input.uv);
-    float3 blended = centre.rgb;
+    float4 center = tex2D(sTexCombined, input.uv);
+    float3 blended = center.rgb;
 
     // Wherever the game drew its HUD, the pixels as they arrived. On an HDR
     // swap chain that is the HUD as HDR Bridge tone mapped it, so it follows
@@ -1829,7 +1829,7 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
         // Alpha holds how far this shader moved the pixel. Banding the shader opened
         // up can be gone after hard; banding that was already there is treated more
         // gently. Both run every frame, crossfaded rather than switched.
-        float effect = smoothstep(DebandSplit * 0.5, DebandSplit, centre.a);
+        float effect = smoothstep(DebandSplit * 0.5, DebandSplit, center.a);
 
         float3 strong = blended;
         float3 gentle = blended;
@@ -1904,7 +1904,7 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
     float banding_mask = saturate(1.0 - gradient * 64.0);
     banding_mask *= banding_mask;
 
-    // dither spans +/-1 at this point, so strength 1.0 lands one quantisation step
+    // dither spans +/-1 at this point, so strength 1.0 lands one quantization step
     // either side of the true color.
     float3 applied = dither * (banding_mask * DitherStrength / DitherSteps);
 
@@ -1912,7 +1912,7 @@ float3 PS_Present(VS_OUTPUT input) : SV_Target
     {
         // Back up into step units and halved, so strength 1.0 fills the 0-1 range
         // exactly. The mask is included, so flat areas show the pattern and
-        // detailed ones stay grey. Anything above 1.0 clips here, which is the
+        // detailed ones stay gray. Anything above 1.0 clips here, which is the
         // honest reading of a dither driven past the step it is correcting.
         return saturate(applied * DitherSteps * 0.5 + 0.5);
     }
